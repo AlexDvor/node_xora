@@ -1,0 +1,4 @@
+deployment/*.sh text eol=lf
+deployment/*.service text eol=lf
+*.ts text eol=lf
+*.json text eol=lf

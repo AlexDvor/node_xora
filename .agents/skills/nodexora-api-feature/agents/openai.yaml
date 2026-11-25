@@ -1,0 +1,4 @@
+interface:
+  display_name: "NodeXora API"
+  short_description: "Develop readable NodeXora monitoring API features"
+  default_prompt: "Use $nodexora-api-feature to implement the next agreed backend change and explain its request flow."

@@ -6,7 +6,31 @@
 **Frontend:** Angular + TypeScript  
 **Backend:** Node.js + Fastify + TypeScript  
 **Target OS:** Debian Linux  
-**Status:** Planning / Initial Development
+**Status:** Backend foundation implemented; monitoring development in progress
+
+**Current owner decision:** The backend remains a standalone npm project inside
+`apps/api`, including its package manifest, lockfile, installed dependencies, tests,
+and README. Feature response types live beside their module (`*.types.ts`);
+general response envelopes live in `apps/api/src/common/types`.
+There is no `packages/shared` package. API consumers use the OpenAPI document
+generated from Fastify route schemas; Swagger UI is served at `/api/`.
+`apps/web` remains separate and is not part of the current task. No root npm workspace
+is used at this stage; this overrides section 3.4 and the root npm files in section 5.
+The backend layer boundaries remain unchanged.
+
+**Current readability convention:** Keep complete endpoint schemas outside route
+files, use named Fastify hooks for cross-cutting HTTP behavior, and keep `app.ts`
+focused on composition. Section 8 describes the implemented layout. Agent rules
+are in [apps/api/AGENTS.md](api/AGENTS.md); the repository skill is
+[nodexora-api-feature](../.agents/skills/nodexora-api-feature/SKILL.md).
+
+**Current development access:** Use the existing Debian Nginx on port 80 to proxy
+`/api/` to Fastify at `127.0.0.1:3000`, limited to the server's LAN and loopback.
+The intended health URL is `http://192.168.1.33/api/v1/health`; SSH port forwarding
+is no longer used. This is LAN development access, not a public production deployment.
+**Current access decision:** All local monitoring API routes are public. No application
+login, credentials or route guards are required. Access control and HTTPS are
+deferred to a separately requested future stage; they do not block monitoring work.
 
 ---
 
@@ -103,7 +127,7 @@ Use Fastify's native plugin architecture rather than unnecessarily reproducing E
 
 ## 3.4 Monorepo
 
-Use npm workspaces initially.
+Keep the API as an independent npm project in `apps/api`; no root npm workspace.
 
 Do not introduce Nx, Turborepo, or another monorepo orchestration framework unless the project complexity justifies it.
 
@@ -133,8 +157,7 @@ Fastify handles:
 - HTTP requests.
 - WebSocket connections.
 - Request validation.
-- Authentication.
-- Authorization.
+- Authentication/authorization only in a separately agreed future access-control stage.
 - API routing.
 - Response serialization.
 - Error handling.
@@ -172,74 +195,84 @@ Controllers and API routes must not directly execute Linux commands.
 
 ---
 
-# 5. Monorepo Directory Structure
+# 5. Repository Structure and Documentation Ownership
 
-Use the following structure as the initial architectural target.
+The current source repository is organized as follows (generated files omitted):
 
 ```text
-nodexora/
-│
+node_xora/
+├── .agents/
+│   └── skills/nodexora-api-feature/
+│       ├── SKILL.md
+│       └── agents/openai.yaml
 ├── apps/
-│   │
-│   ├── web/                      # Angular application
+│   ├── PROJECT_SPEC.md
+│   ├── README.md
+│   ├── api/                      # Independent npm project; see section 8
+│   │   ├── AGENTS.md
+│   │   ├── README.md
+│   │   ├── MONITORING_PLAN.md
+│   │   ├── package.json
+│   │   ├── package-lock.json
 │   │   ├── src/
-│   │   │   ├── app/
-│   │   │   │   ├── core/
-│   │   │   │   ├── shared/
-│   │   │   │   ├── layout/
-│   │   │   │   ├── features/
-│   │   │   │   ├── app.config.ts
-│   │   │   │   ├── app.routes.ts
-│   │   │   │   └── app.ts
-│   │   │   ├── environments/
-│   │   │   ├── styles/
-│   │   │   └── main.ts
-│   │   ├── public/
-│   │   ├── proxy.conf.json
-│   │   ├── angular.json
-│   │   ├── tsconfig.json
-│   │   └── package.json
-│   │
-│   └── api/                      # Fastify backend
-│       ├── src/
-│       │   ├── app.ts
-│       │   ├── server.ts
-│       │   ├── config/
-│       │   ├── plugins/
-│       │   ├── hooks/
-│       │   ├── modules/
-│       │   ├── infrastructure/
-│       │   ├── realtime/
-│       │   ├── common/
-│       │   └── types/
-│       ├── tests/
-│       ├── tsconfig.json
-│       └── package.json
-│
-├── packages/
-│   └── shared/
-│       └── src/
-│           ├── contracts/
-│           ├── schemas/
-│           └── types/
-│
-├── docs/
-│   ├── architecture/
-│   ├── api/
-│   ├── deployment/
-│   └── decisions/
-│
-├── scripts/
-├── AGENTS.md
-├── PROJECT_SPEC.md
-├── README.md
-├── package.json
-└── package-lock.json
+│   │   ├── tests/
+│   │   └── deployment/
+│   └── web/                      # Frontend; outside the current backend scope
+└── .gitignore
 ```
 
-This is a target structure, not a requirement to create every empty directory immediately.
+There is no root npm project, shared npm package or requirement to create root
+`docs`, `scripts`, `AGENTS.md` or `PROJECT_SPEC.md`. The source specification is
+this file in `apps`, not a second root copy. Add directories only when needed.
 
-Create folders and abstractions only when their responsibilities become necessary.
+Each document has a distinct purpose:
+
+| Document | Owns |
+|---|---|
+| `apps/PROJECT_SPEC.md` | Current architecture, owner decisions and long-term product scope |
+| `apps/api/MONITORING_PLAN.md` | Monitoring stages, proposed future contracts, acceptance criteria and remaining decisions |
+| `apps/api/AGENTS.md` | Durable instructions for agents editing backend files |
+| `.agents/skills/nodexora-api-feature/SKILL.md` | Reusable feature-development workflow; links to the project rules |
+| `apps/README.md` | Ukrainian Windows/Git Bash deployment guide |
+| `apps/api/README.md` | Backend reading guide, local commands, API and deployment details |
+
+The owner's current instructions take precedence. Reconcile approved architectural
+changes here and update affected operational instructions; a roadmap proposal does
+not silently override an implemented contract. README and skill files should link
+to detailed rules instead of creating competing architecture specifications.
+
+## Current implementation and deployment status
+
+The local API implements health, RAM, swap, Swagger and the scoped no-cache hook.
+Swap is implemented and tested locally; its Debian integration and deployment
+have not been verified in this increment. Existing server checks below predate swap.
+CPU, disks, network, processes, connected-user sessions, services, routes,
+logs, history and WebSocket remain planned work, not existing endpoints.
+
+The current runtime build, including the file-layout refactor and public monitoring
+access, has been deployed and checked through Nginx. Runtime is now managed by the
+`nodexora-api.service` user unit for `dvor`, installed outside the application at
+`~/.config/systemd/user/nodexora-api.service`. It is enabled under the user
+`default.target`. Existing `Linger=yes` starts the user manager at boot without
+login. The unit uses Node.js from `%h/.local/bin/node`, working directory
+`%h/nodexora/api`, Linux provider and port 3000, with `Restart=on-failure`.
+Logs are in the user journal. Nginx is also enabled for boot.
+
+The deployment script stops and starts this user service, including rollback;
+it does not use nohup or a PID file. Routine deployment does not change the unit.
+Unit validation, enabled/active state, lingering, real deployment stop/start and
+HTTP checks were performed. A server reboot and forced-crash test were not performed.
+Always distinguish these checks from evidence of a physical boot cycle.
+
+The deployment archive must contain only compiled `dist`, `package.json` and
+`package-lock.json`. Install production dependencies on Debian. Do not ship project
+README files, plans, source, tests, agent instructions or deployment scripts into
+the API runtime directory. Execute activation instructions through SSH stdin;
+build Node.js major is a command argument, not an installed metadata file.
+
+Sections 6–7 and 16 describe future frontend/Network Lab work. Sections 15 and the
+administration roadmap describe deferred work. None authorizes implementing those
+features during a backend monitoring task.
 
 ---
 
@@ -400,122 +433,99 @@ The backend must use a modular, feature-based architecture with clear separation
 
 ## 8.1 Backend Directory Structure
 
+The current implemented structure is:
+
 ```text
-apps/api/src/
-│
-├── app.ts
-├── server.ts
-│
-├── config/
-│   ├── env.ts
-│   └── constants.ts
-│
-├── plugins/
-│   ├── security.plugin.ts
-│   ├── cors.plugin.ts
-│   ├── websocket.plugin.ts
-│   └── error-handler.plugin.ts
-│
-├── hooks/
-│   ├── authenticate.hook.ts
-│   ├── authorize.hook.ts
-│   └── audit.hook.ts
-│
-├── modules/
-│   │
-│   ├── system/
-│   │   ├── system.routes.ts
-│   │   ├── system.controller.ts
-│   │   ├── system.service.ts
-│   │   └── system.schema.ts
-│   │
-│   ├── processes/
-│   │   ├── processes.routes.ts
-│   │   ├── processes.controller.ts
-│   │   ├── processes.service.ts
-│   │   └── processes.schema.ts
-│   │
-│   ├── network/
-│   │   ├── network.routes.ts
-│   │   ├── network.controller.ts
-│   │   ├── network.service.ts
-│   │   └── network.schema.ts
-│   │
-│   ├── routing/
-│   │   ├── routing.routes.ts
-│   │   ├── routing.controller.ts
-│   │   ├── routing.service.ts
-│   │   └── routing.schema.ts
-│   │
-│   ├── services/
-│   │   ├── services.routes.ts
-│   │   ├── services.controller.ts
-│   │   ├── services.service.ts
-│   │   └── services.schema.ts
-│   │
-│   ├── firewall/
-│   │   ├── firewall.routes.ts
-│   │   ├── firewall.controller.ts
-│   │   ├── firewall.service.ts
-│   │   └── firewall.schema.ts
-│   │
-│   ├── logs/
-│   │   ├── logs.routes.ts
-│   │   ├── logs.controller.ts
-│   │   ├── logs.service.ts
-│   │   └── logs.schema.ts
-│   │
-│   ├── metrics/
-│   │   ├── metrics.routes.ts
-│   │   ├── metrics.service.ts
-│   │   └── metrics.collector.ts
-│   │
-│   ├── network-lab/
-│   │   ├── network-lab.routes.ts
-│   │   ├── network-lab.controller.ts
-│   │   ├── network-lab.service.ts
-│   │   ├── network-lab.schema.ts
-│   │   └── simulation/
-│   │
-│   └── auth/
-│       ├── auth.routes.ts
-│       ├── auth.controller.ts
-│       ├── auth.service.ts
-│       └── auth.schema.ts
-│
-├── infrastructure/
-│   ├── linux/
-│   │   ├── system.provider.ts
-│   │   ├── processes.provider.ts
-│   │   ├── network.provider.ts
-│   │   ├── routing.provider.ts
-│   │   └── services.provider.ts
-│   │
-│   ├── persistence/
-│   │   └── database.ts
-│   │
-│   └── privileged/
-│       └── privileged-client.ts
-│
-├── realtime/
-│   ├── websocket.gateway.ts
-│   ├── subscription-manager.ts
-│   └── message.types.ts
-│
-├── common/
-│   ├── errors/
-│   │   ├── app-error.ts
-│   │   └── error-codes.ts
-│   │
-│   ├── utils/
-│   └── validation/
-│
-└── types/
+apps/api/
+├── AGENTS.md
+├── .prettierrc.json
+├── src/
+│   ├── app.ts
+│   ├── server.ts
+│   ├── config/
+│   │   └── env.ts
+│   ├── plugins/
+│   │   ├── swagger.plugin.ts
+│   │   └── error-handler.plugin.ts
+│   ├── hooks/
+│   │   └── no-cache.hook.ts
+│   ├── common/
+│   │   ├── errors/app-error.ts
+│   │   ├── schemas/error.schema.ts
+│   │   └── types/api-response.ts
+│   ├── modules/
+│   │   ├── health/
+│   │   │   ├── health.routes.ts
+│   │   │   └── health.schema.ts
+│   │   └── system/
+│   │       ├── system.routes.ts
+│   │       ├── system.controller.ts
+│   │       ├── system.service.ts
+│   │       ├── system.types.ts
+│   │       ├── schemas/memory.schema.ts
+│   │       └── schemas/swap.schema.ts
+│   └── infrastructure/
+│       └── linux/
+│           ├── system.provider.ts
+│           └── mock-system.provider.ts
+├── tests/
+└── deployment/
 ```
 
-This structure must be implemented progressively.
+Add processes, network, routing, services, logs, metrics, auth and realtime only
+when the agreed monitoring stage requires them. Follow the same responsibility
+boundaries; do not create empty future modules.
 
-Do not create placeholder files for features that do not exist yet.
+## 8.2 File Responsibilities and Request Flow
+
+- `app.ts` creates Fastify, installs root configuration/error handling, registers
+  Swagger and feature routes, and passes dependencies explicitly.
+- `server.ts` reads runtime configuration, selects the Linux/mock provider, starts
+  the listener and handles process shutdown.
+- `*.routes.ts` registers method/path and references named hooks, complete schemas
+  and handlers. Do not put full schema objects, Linux parsing or calculations there.
+- `*.controller.ts` handles HTTP response composition. `*.service.ts` implements
+  calculations and coordinates providers. Keep services independent of Fastify.
+- Linux providers own OS I/O. They may expose pure parsing helpers for tests;
+  a separate parser file is optional when it improves readability.
+- A feature's DTOs live in `<feature>.types.ts`. General data/error response
+  envelopes live in `common/types`; general error schema lives in `common/schemas`.
+- Resource schemas live in `<feature>/schemas/<resource>.schema.ts`. A small,
+  single-endpoint health feature may use `health.schema.ts` directly.
+- Each route schema contains request validation, response schemas and OpenAPI
+  metadata (summary, description, tags, security) together. It is the runtime and
+  documentation contract; Swagger is registered before application routes.
+- Shared HTTP behavior uses named Fastify hooks in `hooks`. The no-cache hook
+  remains scoped to system routes. All current monitoring routes, health and
+  Swagger are accessible without application credentials.
+- Keep the application error handler installed in the root context. Moving it to
+  a normal encapsulated plugin can change which routes inherit it.
+- The tiny hidden `/` to `/api/` redirect belongs to Swagger setup. It is not a
+  business endpoint and does not require a separate controller or schema module.
+- A simple health response does not need artificial controller/service/provider
+  layers. Add layers when they have an actual responsibility.
+
+The RAM request passes through route, controller, service and Linux
+provider; the provider returns raw values, the service calculates usage, and the
+controller wraps the result in the documented HTTP response.
+
+## 8.3 Readability and Framework Conventions
+
+Use the API-local Prettier configuration: two spaces, single quotes and LF.
+`npm run format` writes formatting; `npm run format:check` verifies it.
+Run build, type-check and behavior tests for code changes. Formatting checks are
+separate from TypeScript checks; no linting framework is required by this change.
+
+Preserve endpoint URLs, response shapes, status codes, security, cache policy and
+metric formulas during structural refactoring unless a contract change is explicit.
+Do not convert every function into a class or add dependency-injection containers
+for the current small API.
+
+These folders are the project's convention, using the framework mechanisms described
+in the official Fastify documentation: [Routes](https://fastify.dev/docs/latest/Reference/Routes/),
+[Validation and Serialization](https://fastify.dev/docs/latest/Reference/Validation-and-Serialization/),
+[Hooks](https://fastify.dev/docs/latest/Reference/Hooks/) and
+[Encapsulation](https://fastify.dev/docs/latest/Reference/Encapsulation/).
 
 ---
 
@@ -530,7 +540,7 @@ HTTP Request
 Route
     |
     v
-Validation / Authentication / Authorization
+Validation
     |
     v
 Controller
@@ -547,32 +557,21 @@ Linux / Database
 
 ## 9.1 Routes
 
-Routes define HTTP methods, endpoint paths, request schemas, and handlers.
+Routes register HTTP methods, paths, complete imported schemas and handlers.
+Services are initialized once and passed explicitly in Fastify plugin options;
+controllers receive those services through their existing factory.
 
-Example:
+For example, after initializing the controller and scoped hooks:
 
 ```typescript
-// system.routes.ts
-
-import type { FastifyPluginAsync } from 'fastify';
-import { createSystemController } from './system.controller';
-
-export const systemRoutes: FastifyPluginAsync =
-  async (app) => {
-    const controller = createSystemController(
-      app.systemService
-    );
-
-    app.get('/info', {
-      handler: controller.getInfo
-    });
-  };
+app.get('/memory', {
+  schema: memoryRouteSchema,
+  handler: controller.getMemory,
+});
 ```
 
-The example assumes the system service has been registered and typed as a Fastify decoration.
-
-A simpler explicit dependency factory is also acceptable.
-
+Cache behavior is a named hook. The route file attaches them
+in the relevant scope, while schema files own validation and OpenAPI metadata.
 Do not duplicate dependency initialization across routes.
 
 ## 9.2 Controllers
@@ -654,7 +653,7 @@ Examples:
 - CORS configuration.
 - WebSocket support.
 - Error handling.
-- Authentication dependencies.
+- Optional future authentication dependencies (not used by current monitoring).
 - Application service registration.
 - Database integration.
 
@@ -668,8 +667,7 @@ Use hooks for cross-cutting request concerns.
 
 Examples:
 
-- Authentication.
-- Authorization.
+- Authentication/authorization only in a separately agreed future access-control stage.
 - Audit logging.
 - Request lifecycle checks.
 - Permission enforcement.
@@ -683,7 +681,7 @@ Security requirements may differ by feature.
 For example:
 
 - Public health checks require no authentication.
-- Monitoring endpoints require an authenticated session.
+- Current local monitoring endpoints require no application authentication.
 - Administrative operations require additional permissions.
 - Privileged actions require explicit authorization and audit logging.
 
@@ -773,34 +771,36 @@ Avoid unnecessary response wrappers for protocols that require a different forma
 
 ---
 
-# 12. Frontend and Backend Shared Contracts
+# 12. API Contracts and Swagger
 
-Use a shared workspace package for cross-application contracts.
+Define runtime request/response schemas in the backend and generate OpenAPI with
+`@fastify/swagger`. Serve Swagger UI with `@fastify/swagger-ui` at `/api/` and the
+machine-readable OpenAPI document at `/api/json`.
 
 ```text
-packages/shared/src/
-├── contracts/
-│   ├── system.contract.ts
-│   ├── metrics.contract.ts
-│   ├── network.contract.ts
-│   └── routing.contract.ts
-│
-├── schemas/
-└── types/
+apps/api/src/
+├── common/types/              # General response envelopes
+├── common/schemas/            # Shared error response schema
+├── modules/                   # Feature DTOs and complete endpoint schemas
+└── plugins/swagger.plugin.ts  # OpenAPI generation and Swagger UI
 ```
 
-Both Angular and Fastify may import compatible framework-independent contracts.
+Angular consumes the HTTP API using its published OpenAPI contract. It does not
+import backend source. Client type generation may be considered separately when
+Angular integration starts; no generator is required for the current backend task.
 
 Rules:
 
 - Do not import backend implementation code into Angular.
-- Do not introduce Node.js-only dependencies into the shared package.
-- Keep shared contracts lightweight.
+- Do not create a separate shared npm package.
+- Keep backend types and route schemas consistent with the generated OpenAPI.
 - Prefer clearly named types.
 - Use runtime validation where data crosses trust boundaries.
-- Avoid duplicating DTO definitions in frontend and backend.
+- Use OpenAPI to check frontend DTO compatibility; do not maintain a second handwritten API specification.
 
-Shared contracts must not expose privileged Linux implementation details unnecessarily.
+Published schemas must not expose secrets or unnecessary privileged Linux implementation details.
+Current Swagger UI has no authentication scheme or login step. Its monitoring
+requests execute directly; access control can be designed in a future task.
 
 ---
 
@@ -814,7 +814,7 @@ Use REST for standard queries and administrative operations.
 
 The backend should:
 
-- Maintain authenticated client connections.
+- Maintain client connections; application authentication is deferred for the local project.
 - Validate message structure.
 - Manage subscriptions.
 - Broadcast metrics.
@@ -900,9 +900,12 @@ Linux permissions must be respected.
 
 ---
 
-# 15. Security Architecture
+# 15. Future Administration Security — Deferred
 
-NodeXora must be secure by default.
+This section describes future requirements for administration or wider access.
+It does not introduce authentication, credentials or guards into the current
+local read-only monitoring API. API input validation and OS permission boundaries
+remain part of data correctness.
 
 ## Mandatory Rules
 
@@ -1123,7 +1126,13 @@ Do not introduce Docker or orchestration tools as mandatory production dependenc
 
 ## Phase 1 — Project Foundation
 
-- Initialize the npm workspace.
+This is the overall product roadmap, not a command to recreate existing code.
+The standalone backend project, health/RAM API, Swagger, tests and dev-deployment script
+already exist. Angular integration and the remaining foundation tasks are separate
+work when explicitly requested. For the active backend sequence use
+[MONITORING_PLAN.md](api/MONITORING_PLAN.md).
+
+- Initialize the standalone API npm project.
 - Create the Angular application.
 - Create the Fastify application.
 - Configure TypeScript.
@@ -1131,7 +1140,7 @@ Do not introduce Docker or orchestration tools as mandatory production dependenc
 - Implement health-check API.
 - Configure Angular-to-API communication.
 - Add consistent error handling.
-- Define shared contracts.
+- Define backend contracts and publish OpenAPI with Swagger UI.
 
 ## Phase 2 — Monitoring MVP
 
@@ -1173,8 +1182,7 @@ Do not introduce Docker or orchestration tools as mandatory production dependenc
 
 ## Phase 6 — Secure Administration
 
-- Authentication.
-- Authorization.
+- Authentication and authorization (future administration stage only).
 - Audit logs.
 - Privileged helper.
 - Limited service operations.
@@ -1207,6 +1215,12 @@ The project owner is learning Angular and already understands React, TypeScript,
 
 ## Working Rules
 
+Backend-specific instructions are maintained in [api/AGENTS.md](api/AGENTS.md).
+Use the repository skill [nodexora-api-feature](../.agents/skills/nodexora-api-feature/SKILL.md)
+when implementing or refactoring API features. It provides a focused workflow;
+AGENTS.md and this specification remain the source of durable project conventions.
+The skill is instruction-only and is not a process installed on Debian.
+
 - Communicate with the project owner in Ukrainian.
 - Use English for source code and identifiers.
 - Explain important architectural choices.
@@ -1217,7 +1231,7 @@ The project owner is learning Angular and already understands React, TypeScript,
 - Do not overengineer simple features.
 - Prefer framework-native solutions.
 - Avoid unnecessary dependencies.
-- Keep backward compatibility in mind when changing shared contracts.
+- Keep backward compatibility in mind when changing published API contracts.
 - Write tests for meaningful logic.
 - Do not silently modify Linux configuration.
 - Do not execute destructive operations without explicit approval.
@@ -1275,23 +1289,23 @@ Exclude privileged system management, arbitrary command execution, and real netw
 
 ---
 
-# 24. Immediate Task for Codex
+# 24. Next Backend Work
 
-Begin with **Phase 1 — Project Foundation**.
+Continue the existing implementation; do not initialize a second Fastify app or
+recreate health/RAM endpoints. The current task scope is backend monitoring.
 
-Before implementing:
+Before the next implementation step:
 
-1. Inspect the repository.
-2. Check whether Angular or Fastify already exists.
-3. Check relevant Node.js and Angular toolchain versions.
-4. Review this specification.
-5. Propose the minimal folder structure necessary for Phase 1.
-6. Explain how Angular and Fastify will communicate.
-7. Propose the initial health-check endpoint.
-8. Identify required dependencies.
-9. Avoid creating empty future feature modules.
-10. Do not modify the Debian server without authorization.
+1. Read the current owner decisions, API AGENTS.md and relevant monitoring stage.
+2. Inspect the existing route, schema, controller, service, provider and tests.
+3. Select one small requested change from the monitoring plan; explicitly resolve
+   any field semantics or Linux-source decisions needed for that change.
+4. Explain the request/data flow and implement only that agreed scope.
+5. Verify formatting, build, types, behavior and the generated Swagger description.
+6. Report local results separately from deployment and Debian integration checks.
 
-The initial goal is a working foundation where the Angular application successfully requests data from the Fastify backend.
+Do not start Angular or later product features unless the owner includes them in
+the task. Do not connect to or modify Debian solely to complete local coding work.
+If deployment is requested, use the documented script and report the actual outcome.
 
-**Build NodeXora incrementally, using clean modular architecture, practical engineering principles, and secure Linux integration.**
+**Build NodeXora incrementally with readable modules and verifiable Linux data.**
