@@ -1,0 +1,19 @@
+body {
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: 1.6;
+}
+
+h1,
+h2 {
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+}
+
+h2 {
+  font-size: var(--text-heading);
+}
+
+code {
+  font-family: var(--font-mono);
+}

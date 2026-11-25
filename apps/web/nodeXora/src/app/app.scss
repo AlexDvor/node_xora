@@ -1,0 +1,158 @@
+:host {
+  display: block;
+}
+
+// Локальне перевизначення токена успадковується всіма елементами сторінки.
+:host(.alternative-accent) {
+  --color-accent: #8dd8ff;
+  --color-on-accent: #102837;
+}
+
+.demo {
+  max-width: var(--content-width);
+  margin-inline: auto;
+  padding: var(--space-8) var(--space-6);
+}
+
+.page-header,
+footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.page-header {
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.brand {
+  font-size: var(--text-heading);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.brand span,
+h1 span,
+.eyebrow,
+.card-index {
+  color: var(--color-accent);
+}
+
+.badge,
+.card-label,
+.notice,
+footer {
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+}
+
+.badge {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+.intro {
+  padding-block: var(--space-16) var(--space-12);
+}
+
+.eyebrow,
+.card-index {
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  letter-spacing: 0.08em;
+}
+
+h1 {
+  margin-top: var(--space-4);
+  font-size: var(--text-hero);
+}
+
+.description {
+  max-width: 42rem;
+  margin-top: var(--space-6);
+  color: var(--color-text-muted);
+}
+
+.notice {
+  margin-top: var(--space-4);
+}
+
+.theme-button {
+  margin-top: var(--space-6);
+  padding: var(--space-3) var(--space-6);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.card {
+  padding: var(--space-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.card:hover {
+  border-color: var(--color-accent);
+}
+
+.card h2 {
+  margin-block: var(--space-6) var(--space-3);
+}
+
+.card p,
+.token-example p:not(.eyebrow) {
+  color: var(--color-text-muted);
+}
+
+.card-label {
+  display: block;
+  margin-top: var(--space-6);
+}
+
+.token-example {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-8);
+  align-items: center;
+  padding-block: var(--space-12);
+}
+
+.token-example h2 {
+  margin-block: var(--space-3);
+}
+
+pre {
+  min-width: 0;
+  overflow-x: auto;
+  padding: var(--space-6);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  font-size: var(--text-small);
+}
+
+footer {
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--color-border);
+}
+
+@media (max-width: 48rem) {
+  .cards,
+  .token-example {
+    grid-template-columns: 1fr;
+  }
+}

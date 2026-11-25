@@ -1,0 +1,49 @@
+<main class="demo">
+  <header class="page-header">
+    <a class="brand" href="#overview">Node<span>Xora</span></a>
+    <span class="badge">Навчальний проєкт · UI demo</span>
+  </header>
+
+  <section class="intro" id="overview" aria-labelledby="page-title">
+    <p class="eyebrow">LINUX / MONITORING / LEARNING</p>
+    <h1 id="page-title">Твій сервер.<br /><span>Усе під контролем.</span></h1>
+    <p class="description">Перший погляд на NodeXora. Спільні кольори, типографіка й відступи задаються токенами, а компоненти використовують їх у своїх стилях.</p>
+    <p class="notice">Це приклад інтерфейсу. Підключення до сервера та реальних метрик немає.</p>
+    <button class="theme-button" type="button" (click)="toggleAccent()" [attr.aria-pressed]="alternativeAccent()">Змінити акцент</button>
+  </section>
+
+  <section class="cards" aria-label="Можливості NodeXora">
+    <article class="card">
+      <span class="card-index">01 / OBSERVE</span>
+      <h2>Моніторинг</h2>
+      <p>Місце для майбутніх показників CPU, RAM і дисків.</p>
+      <span class="card-label">Демонстраційна картка</span>
+    </article>
+    <article class="card">
+      <span class="card-index">02 / EXPLORE</span>
+      <h2>Мережа</h2>
+      <p>Інтерфейси та з’єднання в одному зрозумілому просторі.</p>
+      <span class="card-label">Запланований розділ</span>
+    </article>
+    <article class="card">
+      <span class="card-index">03 / LEARN</span>
+      <h2>Лабораторія</h2>
+      <p>Майбутнє місце для вивчення мережевих концепцій.</p>
+      <span class="card-label">Запланований розділ</span>
+    </article>
+  </section>
+
+  <section class="token-example" aria-labelledby="tokens-title">
+    <div>
+      <p class="eyebrow">ЯК ЦЕ ПРАЦЮЄ</p>
+      <h2 id="tokens-title">Один токен — спільний стиль</h2>
+      <p>Кнопка вище змінює акцент одразу на всій сторінці. Наведи курсор на картки, щоб побачити той самий колір у рамці.</p>
+    </div>
+    <pre><code>.card &#123;
+  background: var(--color-surface);
+  padding: var(--space-6);
+  border-radius: var(--radius-card);
+&#125;</code></pre>
+  </section>
+  <footer>NodeXora <span>Design tokens → Global styles → Component styles</span></footer>
+</main>
