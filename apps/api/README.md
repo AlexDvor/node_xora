@@ -1,347 +1,707 @@
-# NodeXora
+# NodeXora API
 
-Self-hosted Debian monitoring API, following [PROJECT_SPEC](../PROJECT_SPEC.md)
-and its current owner decision to keep the API self-contained and publish OpenAPI.
-The API implements the read-only monitoring resources, shared collector, bounded
-history and WebSocket described in [MONITORING_CONTRACTS.md](MONITORING_CONTRACTS.md).
-Angular remains outside the current scope. The runtime is deployed on Debian and managed by
-the enabled `nodexora-api.service` user unit for `dvor`; user lingering is enabled.
-An owner-initiated reboot on 2026-11-26 confirmed automatic API/Nginx startup.
-The final release was deployed afterward; see the actual verification records in
-[MONITORING_PLAN.md](MONITORING_PLAN.md).
+Навчальний backend для моніторингу Debian-сервера: Node.js, TypeScript і Fastify.
+API читає показники Linux, повертає їх через HTTP та надсилає оновлення через WebSocket.
+Цей README — основний путівник по коду, запуску й щоденній роботі із сервером.
 
-## Structure
+## Зміст
 
-- `src`: Fastify transport, system service, Linux/mock providers.
-- `src/modules/health`: public health route and its complete schema.
-- `src/modules/system`: resource routes, HTTP controller, calculations and feature types.
-- `src/modules/system/schemas`: complete RAM and swap endpoint schemas, including Swagger metadata.
-- `src/modules/metrics`: shared collector, quality, snapshots and bounded history.
-- `src/modules/network`, `processes`, `services`, `routing`, `logs`: read-only resources.
-- `src/realtime`: WebSocket protocol, subscriptions, heartbeat and shared journal feed.
-- `src/config/monitoring.ts`: documented LAN development limits and preferred interface.
-- `src/hooks`: named HTTP hooks, including no-cache.
-- `src/common`: shared HTTP envelopes, error schema and application errors.
-- `src/plugins/swagger.plugin.ts`: generated OpenAPI and Swagger UI.
-- `tests`: backend tests.
-- `package.json`, `package-lock.json`, `node_modules`: this API's npm project and dependencies.
+- [Швидкий старт](#quick-start)
+- [Структура проєкту: де що лежить](#structure)
+- [Архітектура: як проходять дані](#architecture)
+- [Локальна розробка та команди npm](#development)
+- [HTTP API та Swagger](#http-api)
+- [WebSocket: як отримувати оновлення](#websocket)
+- [Як підключитися до Debian](#ssh)
+- [Командник: статус API](#service-status)
+- [Командник: журнали та помилки](#logs)
+- [Командник: показники сервера](#server-metrics)
+- [Керування сервісом](#service-control)
+- [Оновлення API та перевірки](#deployment)
+- [Як шукати проблему](#troubleshooting)
+- [Інші документи проєкту](#documentation)
 
-Request flow: Route → Controller → Service → Provider.
-Only the Linux provider reads `/proc/meminfo` for RAM and swap; routes never execute commands.
+<a id="quick-start"></a>
 
-There is no shared npm package or root npm workspace. Run npm commands from
-`apps/api`; installed dependencies remain there. Fastify route schemas are the
-source for the OpenAPI document consumed by Swagger and future API clients.
-Plugin references: [Fastify Swagger](https://github.com/fastify/fastify-swagger),
-[Fastify Swagger UI](https://github.com/fastify/fastify-swagger-ui).
+## Швидкий старт
 
-## Read the RAM feature in this order
-
-1. [system.routes.ts](src/modules/system/system.routes.ts) registers the endpoint and scoped hooks.
-2. [memory.schema.ts](src/modules/system/schemas/memory.schema.ts) describes response fields, errors and Swagger security.
-3. [system.controller.ts](src/modules/system/system.controller.ts) wraps the service result in `{ data: ... }`.
-4. [system.service.ts](src/modules/system/system.service.ts) calculates used bytes and percent.
-5. [system.provider.ts](src/infrastructure/linux/system.provider.ts) reads and parses Debian memory data.
-
-The service calls the provider and uses its returned values; the list above is a
-reading guide. `app.ts` wires these pieces together, while `server.ts` starts the process.
-
-## Agent guidance and formatting
-
-Durable API rules: [AGENTS.md](AGENTS.md). Repository skill:
-[nodexora-api-feature](../../.agents/skills/nodexora-api-feature/SKILL.md).
-Invoke it with `$nodexora-api-feature` for the next agreed API task. The skill is
-stored with the repository, not installed as a server process.
-
-Prettier is installed locally in this API's devDependencies; no global installation
-is needed. `.prettierrc.json` and `.editorconfig` define two-space indentation,
-single quotes, semicolons, LF and a print width of 100. The format commands cover
-TypeScript in `src`/`tests`, JavaScript in `deployment/checks`, and API-local JSON.
-Angular's separate formatter configuration is unaffected. From `apps/api`:
-
-```bash
-npm run format
-npm run format:check
-```
-
-The first command applies the style; the second checks it without rewriting files.
-Build, type-check and behavior tests remain separate commands.
-
-Keep one blank line between functions/methods and between logical stages such as
-reading data, validation, calculation and returning the result. Related declarations
-stay grouped. Prettier preserves these blank lines but does not insert them
-automatically; the writing convention is recorded in AGENTS.md. An editor with
-Prettier integration should use this project's installed version and configuration.
-
-## Swagger UI
-
-Open `http://192.168.1.33/api/` through Nginx, or `http://127.0.0.1:3000/api/`
-when running locally. The backend root `/` redirects to `/api/`; the Nginx server
-root is still its existing static site. JSON: `/api/json`. YAML: `/api/yaml`.
-
-Swagger lists implemented endpoints only. Open health or RAM, click **Try it out**,
-then **Execute**. Current local monitoring endpoints require no login or additional
-headers. Authentication is deferred to a separate future task.
-
-## Local development (PowerShell)
-
-Use Node.js 26.x; the currently installed server release is 26.13.1 LTS. Prefer an up-to-date patch within that major version.
+**Локальний запуск на Windows — PowerShell:**
 
 ```powershell
 cd D:\code\node_xora\apps\api
 npm ci
-npm run build
-npm run check
-npm test
 $env:SYSTEM_PROVIDER = 'mock'
 npm run dev
 ```
 
-In another terminal, health is available at `http://127.0.0.1:3000/api/v1/health`.
-Memory is available through a plain GET request. Mock data is explicitly marked `source: mock`.
+Відкрий [локальний Swagger](http://127.0.0.1:3000/api/) або
+[локальний health](http://127.0.0.1:3000/api/v1/health).
+`mock` повертає навчальні дані з позначкою `source: mock`, а не показники Debian.
+`Ctrl+C` у цьому терміналі зупиняє локальний API.
 
-## Debian development deployment through Nginx
+**Поточний Debian-сервер:**
 
-### Update from Windows with one Bash script
+| Що відкрити                       | Адреса                                                        |
+| --------------------------------- | ------------------------------------------------------------- |
+| Swagger UI                        | [http://192.168.1.33/api/](http://192.168.1.33/api/)          |
+| Перевірка працездатності API      | [health](http://192.168.1.33/api/v1/health)                   |
+| RAM у JSON                        | [system/memory](http://192.168.1.33/api/v1/system/memory)     |
+| Спільний snapshot усіх ресурсів   | [metrics/current](http://192.168.1.33/api/v1/metrics/current) |
+| WebSocket для програмного клієнта | `ws://192.168.1.33/api/v1/ws`                                 |
 
-Open **Git Bash** (the Bash terminal installed with Git for Windows), then run:
+На сервері API працює як user service `nodexora-api.service` користувача `dvor`.
+Звичайний доступ — через Nginx у локальній мережі. Application login і токени зараз не потрібні.
+
+<a id="structure"></a>
+
+## Структура проєкту: де що лежить
+
+`apps/api` — самостійний npm-проєкт. Його залежності, scripts і lockfile знаходяться тут.
+Спільного npm workspace або `packages/shared` немає. Angular у `apps/web` — окрема частина.
+
+```text
+apps/api/
+├── src/
+│   ├── server.ts                  # Запуск і завершення процесу
+│   ├── app.ts                     # Збирання Fastify та підключення модулів
+│   ├── config/                    # Runtime configuration і limits моніторингу
+│   ├── common/                    # Спільні типи, schemas та помилки
+│   ├── hooks/                     # Спільна HTTP-поведінка, зокрема no-store
+│   ├── plugins/                   # Swagger і централізований error handler
+│   ├── infrastructure/linux/      # Читання Linux та mock sources
+│   ├── modules/
+│   │   ├── health/                # Liveness API
+│   │   ├── system/                # Host info, RAM, swap, CPU, disk, sensors, sessions
+│   │   ├── metrics/               # Collector, shared snapshots і history
+│   │   ├── network/               # Інтерфейси, трафік і connections
+│   │   ├── processes/             # Процеси, сортування, фільтри й pagination
+│   │   ├── services/              # Стани systemd services
+│   │   ├── routing/               # IPv4/IPv6 routes
+│   │   └── logs/                  # Код читання журналу NodeXora
+│   └── realtime/                  # WebSocket, subscriptions, heartbeat, live logs
+├── tests/                         # Parser, service, HTTP, collector і WS tests
+├── deployment/
+│   ├── README.md                  # Пояснення operational files і команд
+│   ├── update/                    # Звичайний deploy
+│   ├── setup/                     # Налаштування нового сервера
+│   └── checks/                    # Linux та LAN verification
+├── package.json                   # Залежності й npm commands
+├── package-lock.json              # Зафіксовані версії залежностей
+├── tsconfig.json                  # Перевірка TypeScript
+├── tsconfig.build.json            # Збірка src у dist
+├── .prettierrc.json                # Локальні правила Prettier
+├── .editorconfig                  # Відступи, encoding і переноси рядків
+├── .gitignore                     # Ignore rules, включно з винятком source logs
+├── .gitattributes                 # LF для коду та deployment files
+├── AGENTS.md                      # Правила роботи з API
+├── MONITORING_CONTRACTS.md         # Дані, quality, limits і WS protocol
+└── MONITORING_PLAN.md              # План, фактичні результати та залишені роботи
+```
+
+`node_modules/` створюється через `npm ci`, а `dist/` — через `npm run build`.
+Це згенеровані робочі папки; їхні файли не редагують вручну.
+
+### Відповідальність файлів у модулі
+
+| Файл                                 | Що в ньому знаходиться                                        |
+| ------------------------------------ | ------------------------------------------------------------- |
+| `*.routes.ts`                        | HTTP method/path, підключення schema і handler                |
+| `*.schema.ts` або `schemas/`         | Валідація, response shape, опис полів і Swagger metadata      |
+| `*.controller.ts`                    | Отримання HTTP-запиту та формування відповіді                 |
+| `*.service.ts`                       | Обчислення, фільтрація, pagination та робота зі sources/cache |
+| `*.types.ts`                         | TypeScript типи даних модуля                                  |
+| `infrastructure/linux/*.provider.ts` | Читання Linux-файлів та системних interfaces                  |
+
+Маленький health endpoint не потребує окремих controller/service.
+Шари додаються там, де мають реальну роботу.
+
+### Джерела Linux-даних
+
+| Provider                  | Джерело або призначення                                           |
+| ------------------------- | ----------------------------------------------------------------- |
+| `system.provider.ts`      | RAM/swap із `/proc/meminfo`                                       |
+| `cpu.provider.ts`         | CPU counters із `/proc/stat` і boot identity                      |
+| `host.provider.ts`        | Hostname, `/etc/os-release`, CPU metadata, uptime і load          |
+| `hardware.provider.ts`    | Capacity `/` через statfs, temperature через hwmon                |
+| `network.provider.ts`     | iproute2, `/proc/net/dev`, TCP/UDP sockets і routes               |
+| `processes.provider.ts`   | Bounded scan `/proc`, process identity, UID і RSS                 |
+| `activity.provider.ts`    | Systemd services та logind login sessions                         |
+| `journal.provider.ts`     | Читання й live-follow журналу NodeXora                            |
+| `monitoring.provider.ts`  | Поєднання sources/services у collector tasks; Linux/mock варіанти |
+| `mock-system.provider.ts` | Позначені mock RAM/swap дані для локальної розробки               |
+| `read-command.ts`         | Запуск fixed executable/argv з timeout та output limit            |
+
+<a id="architecture"></a>
+
+## Архітектура: як проходять дані
+
+Backend має окремі частини для HTTP, обчислень і доступу до Linux.
+Основний поділ: **Route → Controller → Service → Provider**.
+
+Для часто оновлюваних показників provider не читається заново на кожен GET.
+Спільний collector регулярно збирає результати й тримає останні samples у пам'яті.
+
+Шлях готових показників:
+
+```mermaid
+flowchart LR
+    Linux["Debian: /proc, /sys, systemd"] --> Providers["Linux Providers"]
+    Providers --> Services["Services: обчислення"]
+    Services --> Collector["Shared Collector / cache"]
+    Collector --> REST["REST responses"]
+    Collector --> WS["WebSocket updates"]
+    REST --> Nginx["Nginx"]
+    WS --> Nginx
+    Nginx --> Client["Браузер / майбутній Angular"]
+```
+
+- [server.ts](src/server.ts) читає configuration, обирає Linux/mock sources і запускає listener.
+- [app.ts](src/app.ts) підключає routes, plugins, collector, WS та shutdown hooks.
+- [collector.service.ts](src/modules/metrics/collector.service.ts) планує shared collection,
+  ізолює помилки ресурсів, зберігає samples та bounded history.
+- [monitoring.provider.ts](src/infrastructure/linux/monitoring.provider.ts) готує collector tasks,
+  використовуючи providers і services.
+- [ws.gateway.ts](src/realtime/ws.gateway.ts) приймає subscriptions і передає результати клієнтам.
+
+Наприклад, GET RAM проходить через [system.routes.ts](src/modules/system/system.routes.ts),
+[controller](src/modules/system/system.controller.ts) і [service](src/modules/system/system.service.ts).
+У звичайному запуску service повертає RAM зі shared cache. Саме читання `/proc/meminfo`
+виконується provider під час collection. REST і WS використовують той самий sample.
+
+Поточні інтервали: CPU/RAM/swap/load/uptime/network — 2 s; processes/sessions — 3 s;
+host info/disk/sensors/connections/services/routes — 10 s. Налаштування:
+[config/monitoring.ts](src/config/monitoring.ts).
+
+Після старту CPU й rates потребують двох samples. Стан `warming_up` та значення `null`
+у цей момент очікувані. Помилка окремого ресурсу не повинна приховувати всі інші.
+
+History зберігає до 15 хвилин вибраних series у пам'яті та очищається після restart API.
+Вона не створює дані за час до запуску. Ресурси читаються незалежно, не атомарно.
+
+<a id="development"></a>
+
+## Локальна розробка та команди npm
+
+Потрібні Node.js **26.x**, npm і Git. Команди npm виконуй із `apps/api`.
+Prettier уже є в локальних devDependencies; глобально встановлювати його не потрібно.
+
+### Запуск на Windows
+
+PowerShell:
+
+```powershell
+cd D:\code\node_xora\apps\api
+npm ci
+$env:SYSTEM_PROVIDER = 'mock'
+npm run dev
+```
+
+У Git Bash environment задається інакше:
 
 ```bash
 cd /d/code/node_xora/apps/api
-bash deployment/update/deploy.sh
+npm ci
+SYSTEM_PROVIDER=mock npm run dev
 ```
 
-The script performs four steps:
+`npm run dev` автоматично перезапускає процес при змінах коду.
+Для запуску compiled JavaScript у тій самій PowerShell-сесії з `SYSTEM_PROVIDER=mock`:
 
-1. Installs local dependencies from the lockfile, type-checks and runs tests, then
-   builds JavaScript into a fresh temporary directory.
-2. Creates a staging directory under `~/nodexora` on Debian.
-3. Copies only compiled `dist`, `package.json` and `package-lock.json` over SSH.
-   README, plans, deployment scripts, source, tests, local `.env`, SSH keys and
-   Windows `node_modules` are not included in the release archive.
-4. Installs production dependencies on Debian, checks the shipped JavaScript with
-   real Linux RAM data, gracefully stops the verified old API process and starts
-   the new release. It checks health, Swagger and RAM through Nginx.
+```powershell
+npm run build
+npm start
+```
 
-Target: `dvor@192.168.1.33`; key: `~/.ssh/id_ed25519_hermes_server`.
-Optional overrides and help:
+Linux provider читає Debian-джерела. Mock-перевірка на Windows не підтверджує
+правильність інтеграції з Linux.
+
+### Щоденні npm-команди
+
+| Команда                | Що робить                                                          |
+| ---------------------- | ------------------------------------------------------------------ |
+| `npm ci`               | Встановлює залежності за lockfile; замінює наявний node_modules    |
+| `npm run dev`          | Запускає source API через tsx watch                                |
+| `npm run format`       | Форматує TS, checks/*.mjs і API-local JSON                         |
+| `npm run format:check` | Перевіряє форматування, не переписуючи файли                       |
+| `npm run check`        | Перевіряє типи та невикористані locals/parameters                  |
+| `npm test`             | Запускає наявні автоматичні тести, включно з локальними WS sockets |
+| `npm run build`        | Збирає TypeScript у dist                                           |
+| `npm start`            | Запускає dist/server.js; потребує попереднього build               |
+
+Звичайна перевірка перед commit:
 
 ```bash
-SSH_KEY="$HOME/.ssh/id_ed25519_hermes_server" DEPLOY_HOST=dvor@192.168.1.33 bash deployment/update/deploy.sh
-bash deployment/update/deploy.sh --help
+npm run format
+npm run format:check
+npm run build
+npm run check
+npm test
 ```
 
-Run this script **locally**, not on Debian. It requires Git Bash, Node.js/npm,
-SSH/SCP and tar locally; on Debian it needs Node.js/npm, curl, flock, ss, systemctl and loginctl.
-Node.js major versions must match. Dependency lifecycle scripts are disabled;
-if future dependencies require native build/install hooks, review and update
-this policy before adopting them.
+Тести запускаємо після кожної логічної групи code-змін. Помилки команд потрібно
+виправляти до наступного кроку або commit.
 
-It updates the existing `~/nodexora/api` deployment; no runtime credentials file
-is required. It is not a first-install or Nginx setup script.
-No sudo is needed. The Nginx route `/api/` must already work, the NodeXora user
-service must be installed and enabled, and `loginctl show-user dvor -p Linger`
-must report `yes`. Routine deployment does not install or change the unit file.
+### Форматування та configuration
 
-Build/install/preflight failure leaves the running API untouched. After stopping
-the old process, activation failures attempt to restore its files and restart it.
-The release switch has a short interruption; it is not a zero-downtime deployment.
-The API is stopped and started through its configured systemd user unit; no broad process-killing command or separate background process is used.
-Concurrent activations are blocked by a deployment lock.
+`.prettierrc.json` і `.editorconfig`: 2 пробіли, single quotes, semicolons, LF,
+ширина рядка 100. Між функціями/методами та логічними блоками залишаємо порожній рядок.
+Prettier зберігає ці розділення, але автоматично не додає їх.
 
-On success the previous release is removed. On failure a staging release may
-remain at the path printed in the terminal for inspection. If restoration also
-fails, the script reports it and preserves files; inspect `journalctl --user -u nodexora-api.service`.
-The temporary local archive/build is cleaned up automatically.
+| Runtime setting   | Значення                            |
+| ----------------- | ----------------------------------- |
+| `SYSTEM_PROVIDER` | `linux` або `mock`; default `linux` |
+| `PORT`            | Число 1–65535; default 3000         |
+| Host              | `127.0.0.1`, зафіксований у config  |
 
-The deployed directory contains only `dist`, `package.json`, `package-lock.json`
-and the production `node_modules` installed on Debian. Build Node.js major is passed
-as an activation argument; no `release.json` is installed. Activation instructions
-are executed through SSH stdin and are not saved in the API directory. Documentation
-and deployment scripts remain in the local repository. Future changes are deployed
-by running the same command again. The script stops the user service before replacing
-the runtime directory and starts it afterward; rollback uses that same service.
-It does not install documentation or the service unit in the API runtime directory.
+Systemd unit на Debian вже задає `SYSTEM_PROVIDER=linux` і `PORT=3000`.
+Окремий `.env` файл для поточного запуску не потрібний і не завантажується автоматично.
 
-### Existing Nginx setup
+<a id="http-api"></a>
 
-The previously deployed API is at `/home/dvor/nodexora/api`. The previous
-`/home/dvor/nodexora-dev` workspace is retired. No SSH port forwarding is used.
+## HTTP API та Swagger
+
+Swagger UI — [http://192.168.1.33/api/](http://192.168.1.33/api/).
+OpenAPI — [JSON](http://192.168.1.33/api/json) або [YAML](http://192.168.1.33/api/yaml).
+У Swagger відкрий endpoint → **Try it out** → **Execute**.
+
+Локально ті самі paths доступні на `http://127.0.0.1:3000`.
+OpenAPI генерується з Fastify schemas; окрему ручну копію контракту не підтримуємо.
+
+Усі наведені HTTP methods — **GET**, prefix — `/api/v1`:
+
+| Path                                      | Що повертає                                                       |
+| ----------------------------------------- | ----------------------------------------------------------------- |
+| `/health`                                 | Liveness API; не перевіряє доступність усіх Linux providers       |
+| `/system/info`                            | Hostname, OS, kernel, architecture, CPU metadata                  |
+| `/system/memory`                          | RAM: total/available/used bytes, percent, timestamp, source       |
+| `/system/swap`                            | Swap, enabled; за вимкненого swap percent=null                    |
+| `/system/uptime`                          | Uptime seconds, boot time та boot identity                        |
+| `/system/load`                            | Load Average за 1/5/15 хвилин; це не CPU%                         |
+| `/system/cpu`                             | Total/per-core CPU% і measurement window                          |
+| `/system/disks`                           | Capacity кореневого filesystem `/`                                |
+| `/system/temperature`                     | Доступні sensors, labels, Celsius та причини недоступності        |
+| `/system/sessions`                        | Debian login sessions і окремий count унікальних UID              |
+| `/network/interfaces`, `/network/traffic` | Addresses, current address, counters і RX/TX rates                |
+| `/network/connections`                    | Bounded TCP/UDP sockets без PID mapping                           |
+| `/processes`                              | Фільтрований/відсортований process snapshot із pagination         |
+| `/services`                               | Loaded system та поточного user services; running count           |
+| `/services/:name?scope=user`              | Деталі відомого unit; scope=user або system                       |
+| `/routing/routes`                         | IPv4/IPv6 routes і multipath next hops                            |
+| `/logs`                                   | Bounded записи лише user journal сервісу NodeXora                 |
+| `/metrics/current`                        | Спільний snapshot, per-section quality та runtime diagnostics API |
+| `/metrics/history`                        | Обмежений діапазон уже зібраної history                           |
+
+Успіх має envelope `{ "data": ... }`, помилка — `{ "error": { "code": ..., "message": ... } }`.
+RAM/swap і host endpoints повертають DTO безпосередньо в data. Нові sampled endpoints
+повертають Sample у data; його data містить показники, а quality/reason описують стан.
+Не всі HTTP 200 означають доступний показник: перевіряй quality.
+
+`0` — справжній нуль, `null` — відсутнє або незастосовне значення.
+`collectedAt` — час collection, а не відкриття сторінки. Повторний GET може повернути
+той самий sample із тим самим timestamp. Відомості про fields, units, limits,
+quality та cursor errors — у [MONITORING_CONTRACTS.md](MONITORING_CONTRACTS.md).
+
+<a id="websocket"></a>
+
+## WebSocket: як отримувати оновлення
+
+WebSocket уже реалізований у backend. Angular, який його відображатиме, є окремою роботою.
+Адреса для підключення клієнта:
 
 ```text
-LAN browser -> Nginx :80 /api/ -> Fastify 127.0.0.1:3000 -> Linux provider
+ws://192.168.1.33/api/v1/ws
 ```
 
-The update script above deploys a compiled artifact, with no external shared package.
-After a successful replacement, the previous API directory and its old project
-documentation/scripts are removed; unrelated server directories are untouched.
-Run build/type-check/tests in the local source directory. The `deployment` directory
-also contains a Nginx snippet and its one-time setup script, separate from regular updates.
+Це не звичайна вебсторінка. В адресному рядку браузера для одного JSON-виміру
+відкривай HTTP endpoint, наприклад `/api/v1/system/memory`.
+WebSocket відкриває JavaScript або спеціальний клієнт.
 
-The route was already applied and verified during earlier work. For ordinary API
-updates, use `deploy.sh`; do not rerun this one-time setup script. The command below
-is only for a fresh server where that route has not yet been configured:
+Можна перевірити з JavaScript-консолі браузера на нашій Swagger-сторінці:
+
+```javascript
+const socket = new WebSocket('ws://192.168.1.33/api/v1/ws');
+
+socket.addEventListener('open', () => {
+  socket.send(
+    JSON.stringify({
+      type: 'subscribe',
+      requestId: 'ram-1',
+      topic: 'system.memory',
+      intervalSeconds: 5,
+    }),
+  );
+});
+
+socket.addEventListener('message', (event) => {
+  console.log(JSON.parse(event.data));
+});
+```
+
+Отримаєш підтвердження subscribed, поточний snapshot і подальші updates.
+Інтервал клієнта може бути 2/5/10/30 s; він не запускає окремий collector.
+Підписки на різні topics можуть використовувати одне з'єднання.
+
+Після перевірки закрий його в тій самій консолі:
+
+```javascript
+socket.close();
+```
+
+Для майбутнього UI: GET можна використати для initial load/history, а WS — для live updates.
+Після WS snapshot клієнт застосовує новіші samples, відписується при pause та
+підписується заново після reconnect. Докладний protocol v1, topics і правила
+узгодження даних — у [контракті](MONITORING_CONTRACTS.md#websocket-protocol-v1).
+
+<a id="ssh"></a>
+
+## Як підключитися до Debian
+
+Наступні команди виконуй **на своєму комп'ютері**, а не всередині сервера.
+
+PowerShell:
+
+```powershell
+ssh -i "$env:USERPROFILE\.ssh\id_ed25519_hermes_server" dvor@192.168.1.33
+```
+
+Git Bash:
 
 ```bash
-sudo bash /path/to/reviewed/apply-nginx.sh
+ssh -i ~/.ssh/id_ed25519_hermes_server dvor@192.168.1.33
 ```
 
-For a fresh installation only, transfer the reviewed setup script and its adjacent
-`nginx-api.conf` to a temporary setup directory first; they are not shipped by regular
-API deployment. Replace the example path above with that setup script's actual path.
-This requires the server user's sudo password entered in the terminal. The script
-backs up the existing site, adds an include for `/api/`, runs `nginx -t`, and reloads
-Nginx. On validation/reload failure it restores the old site. It preserves the
-existing static site. Run it once; it refuses to overwrite a backup or snippet.
-Until it succeeds, Nginx does not forward `/api/`.
+Після успішного входу ти працюєш у Linux shell сервера як `dvor`.
+Усі команди наступних чотирьох секцій виконуються **в цьому SSH-сеансі на Debian**.
 
-Once applied, health is available at `http://192.168.1.33/api/v1/health`.
-The snippet permits the verified LAN `192.168.1.0/24` and loopback only.
-Fastify stays on loopback. No port 3000 firewall rule or router forwarding is needed.
-If port 80 is blocked, inspect the firewall before changing its rules.
+| Шлях на сервері                                        | Призначення                                                    |
+| ------------------------------------------------------ | -------------------------------------------------------------- |
+| `/home/dvor/nodexora/api`                              | Compiled API: dist, package manifests, production node_modules |
+| `/home/dvor/.config/systemd/user/nodexora-api.service` | Встановлена конфігурація запуску API                           |
+| `/etc/nginx/snippets/nodexora-api.conf`                | Встановлений Nginx HTTP/WS proxy snippet                       |
+| Systemd user journal                                   | Записи роботи NodeXora; окремий api.log не створюється         |
 
-### Automatic startup and service commands
+Source-код, README й scripts залишаються в локальному repository.
+На сервері немає source workspace для редагування або запуску npm tests.
+Завершити SSH-сеанс:
 
-The unit source is [deployment/setup/nodexora-api.service](deployment/setup/nodexora-api.service).
-Its installed location is `/home/dvor/.config/systemd/user/nodexora-api.service`,
-outside the runtime directory. It runs `%h/.local/bin/node dist/server.js` with
-working directory `%h/nodexora/api`, `SYSTEM_PROVIDER=linux` and `PORT=3000`.
-It runs as the user manager's owner (`dvor`), not root.
+```bash
+exit
+```
 
-`WantedBy=default.target` plus `systemctl --user enable nodexora-api.service`
-registers it with the user manager. The existing `Linger=yes` makes that manager
-start at boot and remain available after logout, without an SSH login.
-`Restart=on-failure` restarts an abnormally terminated API; the operational defaults
-are a 3-second restart delay and a 15-second graceful-stop timeout. These are service
-settings, not measured performance guarantees.
+<a id="service-status"></a>
 
-For the current server this setup is already applied. Installing on another server
-requires copying the reviewed unit to its user's systemd config directory, verifying
-its paths, running `systemd-analyze --user verify`, `systemctl --user daemon-reload`
-and enabling/starting the unit after stopping any previous manual API process.
-Lingering must be enabled separately if it is absent. Do not run both startup methods.
+## Командник: статус API
 
-After SSH login as `dvor`, useful commands are:
+**Перші дві команди, коли потрібно перевірити, чи живий API:**
 
 ```bash
 systemctl --user status nodexora-api.service --no-pager
-systemctl --user restart nodexora-api.service
-systemctl --user is-enabled nodexora-api.service
+curl -fsS http://127.0.0.1/api/v1/health
+```
+
+Перша показує стан процесу, друга перевіряє HTTP через Nginx.
+Окрема перевірка Fastify, оминаючи Nginx:
+
+```bash
+curl -fsS http://127.0.0.1:3000/api/v1/health
+```
+
+Інші корисні перевірки:
+
+| Команда                                                                                | Для чого                                                        |
+| -------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `systemctl --user is-active nodexora-api.service`                                      | Чи працює API зараз                                             |
+| `systemctl --user is-enabled nodexora-api.service`                                     | Чи зареєстрований автозапуск user service                       |
+| `loginctl show-user dvor -p Linger`                                                    | Чи user manager може стартувати без login; очікується yes       |
+| `systemctl --user show nodexora-api.service -p MainPID -p ExecMainStatus -p NRestarts` | PID, exit status і лічильник автоматичних рестартів             |
+| `systemctl --user cat nodexora-api.service`                                            | Чинна встановлена unit configuration                            |
+| `systemctl status nginx --no-pager`                                                    | Стан Nginx                                                      |
+| `ss -ltn 'sport = :3000'`                                                              | Listener API; у поточній схемі має бути loopback 127.0.0.1:3000 |
+
+Використовуй `--user` для NodeXora. Nginx — системний service, для нього `--user` не потрібний.
+Enabled/linger підтверджують configuration, а реальний автозапуск після reboot
+підтверджується лише окремою перевіркою після повернення сервера.
+
+<a id="logs"></a>
+
+## Командник: журнали та помилки
+
+NodeXora пише JSON-повідомлення через Fastify/Pino у stdout, а systemd збирає їх у journal.
+`src/modules/logs/` — це source-код читання журналів; самі записи в цій папці не зберігаються.
+Тривалість зберігання визначає configuration journald, а не наш API.
+
+### Останні записи
+
+Останні 50 записів NodeXora:
+
+```bash
 journalctl --user -u nodexora-api.service -n 50 --no-pager
 ```
 
-To stop/start explicitly, use `systemctl --user stop nodexora-api.service` and
-`systemctl --user start nodexora-api.service`. Stopping it does not remove its boot
-registration. Do not start it with `nohup` or use the obsolete `api.pid` file.
-Logs go to the user journal; the old `api.log`, if retained, is historical.
+Записи від поточного boot:
 
-Startup configuration (`enabled`, `Linger=yes`), deployment stop/start and an actual
-owner-initiated reboot were verified on 2026-11-26. A forced-crash test was not performed.
-
-### Existing Nginx: adding WebSocket
-
-Routine `deploy.sh` does not change Nginx. The reviewed exact `/api/v1/ws` location
-is in `deployment/setup/nginx-api.conf`, retaining LAN allow/deny, forwarding Upgrade
-and using a 60 s timeout. The owner applied the one-time migration with sudo on
-2026-11-26; that completed migration script and its remote setup directory have
-been removed. Keep the current snippet as the configuration source. Do not rerun
-first-install `apply-nginx.sh` over an existing installation. Future Nginx changes
-need an explicitly reviewed update, backup, `nginx -t` and reload.
-
-Read RAM directly from PowerShell:
-
-```powershell
-Invoke-RestMethod http://192.168.1.33/api/v1/system/memory
+```bash
+journalctl --user -u nodexora-api.service -b --no-pager
 ```
 
-The current read-only monitoring API has no application login or route authorization.
-The future Angular dev proxy will forward relative `/api/v1` requests to Nginx.
-Rollback restores the previous runtime directory and starts the same systemd user service.
+Записи за останні 15 хвилин:
 
-## API
+```bash
+journalctl --user -u nodexora-api.service --since '15 minutes ago' --no-pager
+```
 
-`GET /api/v1/health` is public and returns `{"data":{"status":"ok"}}`.
-It checks API liveness, not availability of Linux metrics.
+### Стежити за журналом наживо
 
-`GET /api/v1/system/memory` is public in the current local project and returns:
+```bash
+journalctl --user -u nodexora-api.service -n 30 -f
+```
 
-- `totalBytes`: usable RAM reported by Linux as MemTotal, not the nominal installed hardware capacity.
-- `availableBytes`: Linux `MemAvailable`, converted from KiB to bytes.
-- `usedBytes`: `totalBytes - availableBytes` (reclaimable cache is not counted as used).
-- `usedPercent`: `usedBytes / totalBytes * 100`.
-- `collectedAt`: ISO 8601 UTC timestamp after collection.
-- `source`: `linux` or `mock`.
+Залиш термінал відкритим і роби запити до API — нові записи з'являтимуться тут.
+`Ctrl+C` припиняє лише перегляд журналу, API продовжує працювати.
 
-Success envelope: `{ "data": ... }`. Error envelope: `{ "error": { "code": ..., "message": ... } }`.
-Missing, unreadable or invalid Linux memory data: 503
-`MEMORY_INFO_UNAVAILABLE`; unknown values are never replaced with zero.
-The shared collector reads RAM every 2 seconds; repeated REST requests return the
-same sample and its original timestamp. A failed/stale collector sample returns
-the existing 503 error. RAM's response fields and formulas remain unchanged.
+### Саме помилки застосунку Pino
 
-`GET /api/v1/system/swap` is public and returns `{ "data": ... }` with:
+Pino має власне поле level: warn=40, error=50, fatal=60. Воно знаходиться всередині
+JSON message і не тотожне journal priority. Тому `journalctl -p err` не є надійним
+фільтром усіх помилок нашого застосунку.
 
-- `totalBytes`: Linux `SwapTotal`, converted from KiB to bytes.
-- `freeBytes`: Linux `SwapFree`, converted from KiB to bytes.
-- `usedBytes`: `totalBytes - freeBytes`.
-- `usedPercent`: `usedBytes / totalBytes * 100`, or `null` when swap is disabled.
-- `enabled`: `totalBytes > 0`. Disabled swap has zero byte counts.
-- `collectedAt`: ISO 8601 UTC timestamp after collection.
-- `source`: `linux` or `mock`; examples and Windows development use mock data.
+Показати структуровані Pino error/fatal записи за сьогодні, без додаткової залежності jq:
 
-The existing request flow also applies to swap: `system.routes.ts` references
-`schemas/swap.schema.ts` and `controller.getSwap`; `SystemService.getSwapInfo`
-calculates usage, while `LinuxSystemProvider.getSwapInfo` reads `/proc/meminfo`
-once per scheduled collection and `parseSwapMeminfo` validates `SwapTotal` and `SwapFree`.
-Reading requires OS permission for that file, without sudo or shell commands.
-Missing, unreadable, malformed or inconsistent data returns 503
-`SWAP_INFO_UNAVAILABLE`; it is not treated as disabled swap. The response uses
-`Cache-Control: no-store`. Swap has no query parameters; REST/WS share its collector sample.
-The existing RAM response contract is unchanged.
+```bash
+journalctl --user -u nodexora-api.service --since today -o cat --no-pager |
+  ~/.local/bin/node --input-type=module -e '
+    import { createInterface } from "node:readline";
+    const lines = createInterface({ input: process.stdin });
 
-## Monitoring endpoints
+    for await (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+        if (typeof entry.level === "number" && entry.level >= 50) console.log(line);
+      } catch {}
+    }
+  '
+```
 
-All routes below use prefix `/api/v1`, require no application login and are read-only.
-Complete fields, units, quality, errors, limits and WS examples are in
-[MONITORING_CONTRACTS.md](MONITORING_CONTRACTS.md); HTTP schemas are in Swagger.
+Для live-перегляду заміни `--since today` на `-n 0 -f`.
+Цей фільтр показує лише JSON Pino error/fatal; звичайні повідомлення systemd та
+HTTP-запити з їхніми response statuses дивись у повному журналі вище.
 
-| GET path | Result |
-|---|---|
-| `/system/info`, `/system/uptime`, `/system/load` | Host identity, boot identity, load averages |
-| `/system/cpu`, `/system/disks`, `/system/temperature` | Shared CPU, root capacity and sensor samples |
-| `/network/interfaces`, `/network/traffic`, `/network/connections` | Addresses, rates and bounded sockets |
-| `/processes` | Filtered/sorted page; cursor resets on snapshot change |
-| `/system/sessions` | Debian logind login sessions and unique-user count |
-| `/services`, `/services/:name?scope=user` | Loaded system/current-user services and known-unit details |
-| `/routing/routes` | IPv4/IPv6 routes and multipath next hops |
-| `/logs` | Bounded NodeXora user-journal page |
-| `/metrics/current`, `/metrics/history` | Shared dashboard snapshot and 15-minute in-memory history |
-| `/ws` (WebSocket Upgrade) | One connection with validated topic subscriptions |
+Окремо записи з journal priority error та серйознішими рівнями:
 
-Public IP lookup, authentication, administration and persistent history are not enabled.
-`health` remains liveness, not proof that every provider is available.
+```bash
+journalctl --user -u nodexora-api.service -p err --since today --no-pager
+```
 
-To repeat Linux verification without installing test files into runtime, from Git Bash:
+### Журнал Nginx та читання через API
+
+Системний journal Nginx (може знадобитися sudo):
+
+```bash
+sudo journalctl -u nginx -n 50 --no-pager
+```
+
+Системний journal Nginx не замінює його access/error files: їхнє розташування
+визначається чинною configuration Nginx.
+
+Останні записи NodeXora через HTTP:
+
+```bash
+curl -fsS 'http://127.0.0.1/api/v1/logs?limit=20'
+```
+
+Цей endpoint читає тільки user journal `nodexora-api.service` у межах прав `dvor`.
+Його query priority також означає journal priority, а не JSON level Pino.
+
+<a id="server-metrics"></a>
+
+## Командник: показники сервера
+
+Ці команди виконуються на Debian після SSH-входу.
+Вони показують поточний стан ОС, а не збережені приклади з документації.
+
+| Команда                                                         | Що дивитися                                                    |
+| --------------------------------------------------------------- | -------------------------------------------------------------- |
+| `uptime`                                                        | Час роботи й load averages                                     |
+| `free -h`                                                       | RAM/swap у зручних одиницях                                    |
+| `free -b`                                                       | RAM/swap у bytes для порівняння з API                          |
+| `df -h /`                                                       | Місткість кореневого filesystem                                |
+| `df -B1 /`                                                      | Capacity в bytes; percent може мати інший denominator, ніж API |
+| `top`                                                           | Інтерактивний CPU/RAM/process monitor; вихід клавішею q        |
+| `ps -eo pid,user,comm,%cpu,%mem,rss --sort=-%cpu \| head -n 16` | Процеси з найбільшим CPU; RSS тут у KiB                        |
+| `ip -br address`                                                | Інтерфейси та адреси сервера                                   |
+| `ip -s link`                                                    | Накопичені RX/TX counters інтерфейсів                          |
+| `ip -4 route`                                                   | IPv4 routes                                                    |
+| `ip -6 route`                                                   | IPv6 routes                                                    |
+| `ss -ltn`                                                       | TCP listening sockets                                          |
+| `ss -tnu`                                                       | TCP/UDP sockets у відповідних станах; не список login users    |
+| `loginctl list-sessions`                                        | Сесії входу в Debian                                           |
+| `hostnamectl`                                                   | Host/OS/kernel metadata                                        |
+| `~/.local/bin/node --version`                                   | Версія Node.js, який використовує наш unit                     |
+
+Якщо встановлено lm-sensors, `sensors` показує temperature readings.
+API читає доступні hwmon sensors самостійно; відсутність sensors CLI не означає
+відсутність усіх датчиків. Невідоме обладнання не потрібно домислювати за назвами.
+
+`ps %CPU` має іншу часову семантику, ніж delta CPU API. Для точного порівняння
+потрібні зіставні measurement windows. Також usable RAM не дорівнює сумі RSS процесів.
+
+### Показники API через HTTP
+
+```bash
+curl -fsS http://127.0.0.1/api/v1/system/memory
+curl -fsS http://127.0.0.1/api/v1/system/cpu
+curl -fsS http://127.0.0.1/api/v1/network/traffic
+curl -fsS http://127.0.0.1/api/v1/metrics/current
+```
+
+У metrics/current поле runtime містить статистику **самого API-процесу**:
+RSS/heap у bytes, накопичений CPU time у microseconds та Event Loop delay у ms.
+Це не RAM/CPU всього Debian; машинні показники знаходяться у sections.
+
+Із PowerShell на Windows можна отримати runtime без SSH:
+
+```powershell
+(Invoke-RestMethod 'http://192.168.1.33/api/v1/metrics/current').data.runtime | Format-List
+```
+
+Для systemd-статистики ресурсу API, якщо облік увімкнений у системі:
+
+```bash
+systemctl --user status nodexora-api.service --no-pager
+```
+
+Наявні поля CPU/Memory залежать від systemd accounting; відсутні значення не означають нуль.
+
+Стежити наживо лише за процесом запущеного API (вихід клавішею q):
+
+```bash
+top -p "$(systemctl --user show nodexora-api.service -p MainPID --value)"
+```
+
+<a id="service-control"></a>
+
+## Керування сервісом
+
+Наступні команди **змінюють стан API**. Виконуй їх на Debian після SSH-входу.
+Для звичайного оновлення коду використовуй deploy, а не ручний npm start поруч із service.
+
+| Команда                                         | Дія                                        |
+| ----------------------------------------------- | ------------------------------------------ |
+| `systemctl --user restart nodexora-api.service` | Перезапустити API з поточних runtime files |
+| `systemctl --user stop nodexora-api.service`    | Зупинити API                               |
+| `systemctl --user start nodexora-api.service`   | Запустити зупинений API                    |
+
+Stop не прибирає enable registration. Restart очищає in-memory history та створює новий streamId.
+Якщо unit file справді змінено, перед restart виконується `systemctl --user daemon-reload`.
+Рутинний deploy unit file не змінює. Не запускай паралельний API через nohup або npm start.
+
+Для **перевірки** configuration Nginx без застосування змін:
+
+```bash
+sudo nginx -t
+```
+
+Лише після запланованої зміни configuration й успішного nginx -t її застосовують:
+
+```bash
+sudo systemctl reload nginx
+```
+
+На поточному сервері unit і Nginx вже встановлені. Відновлення або новий сервер —
+окрема процедура в [deployment/README.md](deployment/README.md).
+
+<a id="deployment"></a>
+
+## Оновлення API та перевірки
+
+### Звичайне оновлення
+
+Запускай **локально у Git Bash**, з кореня repository на Windows:
+
+```bash
+cd /d/code/node_xora
+bash apps/api/deployment/update/deploy.sh
+```
+
+Скрипт робить local clean install, type check, tests і fresh build; передає на Debian
+лише dist, package.json і package-lock.json; встановлює production dependencies;
+виконує Linux preflight, service stop/start і HTTP checks через Nginx.
+
+Потрібні вже встановлені API service, Linger=yes і працюючий Nginx route.
+Під час активації є коротка перерва. Якщо активація не вдалася, скрипт намагається
+повернути попередню збірку. Наявність скрипта не є доказом успішного deploy — дивись результат запуску.
+
+Deploy не застосовує Nginx configuration, не змінює unit, не потребує sudo й не
+копіює source, docs, scripts, локальні environment files чи Windows node_modules у runtime.
+Local/server Node.js major мають збігатися. Lifecycle install scripts вимкнені.
+
+Довідка без розгортання:
+
+```bash
+bash apps/api/deployment/update/deploy.sh --help
+```
+
+### Окремі перевірки
+
+Перевірка REST/WS через LAN із Windows, з кореня repository:
+
+```bash
+node apps/api/deployment/checks/verify-lan.mjs
+```
+
+Докладна Linux-перевірка й короткий three-client WS сценарій запускаються локально
+з Git Bash, а виконуються на Debian через SSH stdin:
 
 ```bash
 ssh -i ~/.ssh/id_ed25519_hermes_server dvor@192.168.1.33 \
   'cd /home/dvor/nodexora/api && /home/dvor/.local/bin/node --input-type=module' \
-  < deployment/checks/verify-server.mjs
+  < apps/api/deployment/checks/verify-server.mjs
 ```
 
-This performs read-only comparisons and a 35-second, three-client WebSocket check.
-It does not reboot, deploy or alter OS services. Such a multi-client check needs
-explicit owner authorization when run on a shared server.
+Ці checks не роблять deploy або reboot. Серверна перевірка займає понад 35 секунд,
+створює три WS-підключення й звіряє Linux readings із API. Її допуски та development
+budgets описані в скрипті й [контракті](MONITORING_CONTRACTS.md).
+Перевірку кількома клієнтами на спільному сервері проводь як окрему погоджену дію.
 
-## Which deployment files are maintained
+Пояснення всіх файлів update/setup/checks та першого встановлення —
+[deployment/README.md](deployment/README.md).
 
-See [deployment/README.md](deployment/README.md) for a short Ukrainian guide to every
-file and its launch command. Files are grouped into `update` (routine deployment),
-`setup` (fresh-server configuration) and `checks` (read-only verification).
+<a id="troubleshooting"></a>
 
-Deployment scripts are operational tools, not application runtime modules.
-The completed WS migration and one-time fingerprint script were removed.
-The temporary server verification JSON was removed at the owner's request; the plan
-retains the summary of the LAN, release identity and startup checks. The plan remains
-useful until its frontend-only check is completed; the contracts document remains
-the REST/WS handoff, since OpenAPI does not describe the WS protocol.
+## Як шукати проблему
+
+| Симптом                                 | Що перевірити                                                                |
+| --------------------------------------- | ---------------------------------------------------------------------------- |
+| Swagger не відкривається                | LAN/SSH-доступ, Nginx status, API status, health через proxy                 |
+| Nginx повертає 502                      | Прямий health на 127.0.0.1:3000 та user journal API                          |
+| Прямий health працює, proxy health — ні | Nginx configuration, service state і системний journal                       |
+| Health ok, а ресурс недоступний         | HTTP status, quality/reason секції, Linux source та права dvor               |
+| CPU/rates спочатку null                 | Дочекайся другого collection sample; перевір warming_up                      |
+| Process cursor повернув 409             | Snapshot змінився; почни pagination з першої сторінки                        |
+| Після restart немає старих графіків     | History лише in-memory; минулі точки не відновлюються                        |
+| На Windows Linux readings не працюють   | Для local development обери SYSTEM_PROVIDER=mock                             |
+| WebSocket URL не показує JSON у вкладці | Потрібний WS-клієнт і subscribe; для одного JSON використовуй GET            |
+| journalctl -p err порожній              | Переглянь повний journal або JSON Pino level; це різні рівні                 |
+| Новий source файл не видно в Git        | Перевір git status/check-ignore; src/modules/logs — код і має відстежуватися |
+
+Відсутність зв'язку з API не доводить, що весь Debian вимкнувся.
+Поточні read-only endpoints не перезапускають сервіси й не змінюють мережу або файли ОС.
+
+<a id="documentation"></a>
+
+## Інші документи проєкту
+
+| Документ                                                                   | Для чого                                                             |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| [PROJECT_SPEC.md](../PROJECT_SPEC.md)                                      | Архітектурні рішення та scope проєкту                                |
+| [AGENTS.md](AGENTS.md)                                                     | Правила змін API, межі файлів, style та перевірки                    |
+| [MONITORING_CONTRACTS.md](MONITORING_CONTRACTS.md)                         | Точні units, fields, quality, limits, history і WS protocol          |
+| [MONITORING_PLAN.md](MONITORING_PLAN.md)                                   | Етапи, фактичні попередні перевірки та відкритий frontend-only пункт |
+| [deployment/README.md](deployment/README.md)                               | Призначення operational files і команди запуску                      |
+| [Windows deployment guide](../README.md)                                   | Докладна інструкція оновлення з Windows                              |
+| [nodexora-api-feature](../../.agents/skills/nodexora-api-feature/SKILL.md) | Workflow для наступних backend-змін                                  |
+
+HTTP contracts визначають route schemas та generated OpenAPI. Цей README пояснює
+користування й структуру, а докладні правила залишаються у відповідних документах.
+Application login/access control, public-IP lookup, persistent history та administration
+відкладені. Поточний LAN development API не оголошується production-ready.
