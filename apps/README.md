@@ -1,6 +1,6 @@
 # NodeXora — як оновити backend на сервері з Windows
 
-Ця інструкція пояснює, як передати зміни з вашого комп'ютера на Debian-сервер за допомогою готового скрипта `api/deployment/deploy.sh`.
+Ця інструкція пояснює, як передати зміни з вашого комп'ютера на Debian-сервер за допомогою готового скрипта `api/deployment/update/deploy.sh`.
 
 ## Коротка команда після змін
 
@@ -8,7 +8,7 @@
 
 ```bash
 cd /d/code/node_xora
-bash apps/api/deployment/deploy.sh
+bash apps/api/deployment/update/deploy.sh
 ```
 
 Дочекайтеся повідомлення `Deployment complete`. Потім відкрийте [Swagger UI](http://192.168.1.33/api/).
@@ -23,7 +23,7 @@ bash apps/api/deployment/deploy.sh
 |---|---|
 | `D:\code\node_xora` | Локальний Git-репозиторій на Windows |
 | `D:\code\node_xora\apps\api` | Вихідний код backend, який ви редагуєте |
-| `apps/api/deployment/deploy.sh` | Скрипт оновлення; запускається на Windows у Git Bash |
+| `apps/api/deployment/update/deploy.sh` | Скрипт оновлення; запускається на Windows у Git Bash |
 | `dvor@192.168.1.33` | Користувач і адреса Debian-сервера |
 | `/home/dvor/nodexora/api` | Готова запущена збірка на сервері |
 | `http://192.168.1.33/api/` | Swagger UI через Nginx |
@@ -82,19 +82,19 @@ tar --version
 
 ```bash
 cd /d/code/node_xora
-bash apps/api/deployment/deploy.sh
+bash apps/api/deployment/update/deploy.sh
 ```
 
 Якщо Git Bash уже відкритий у папці `apps`, команда інша:
 
 ```bash
-bash api/deployment/deploy.sh
+bash api/deployment/update/deploy.sh
 ```
 
 Якщо ви вже в `apps/api`:
 
 ```bash
-bash deployment/deploy.sh
+bash deployment/update/deploy.sh
 ```
 
 Це три способи запустити **той самий** скрипт. Використовуйте лише один, відповідно до поточної папки.
@@ -180,7 +180,7 @@ ssh -i "$HOME/.ssh/id_ed25519_hermes_server" dvor@192.168.1.33 \
 ```bash
 DEPLOY_HOST=dvor@192.168.1.33 \
 SSH_KEY="$HOME/.ssh/id_ed25519_hermes_server" \
-bash apps/api/deployment/deploy.sh
+bash apps/api/deployment/update/deploy.sh
 ```
 
 Цей приклад запускається з кореня `node_xora`. Змінні не змінюють файл скрипта. Інший сервер повинен мати такі самі необхідні передумови розгортання.
@@ -188,7 +188,7 @@ bash apps/api/deployment/deploy.sh
 Довідка без запуску оновлення:
 
 ```bash
-bash apps/api/deployment/deploy.sh --help
+bash apps/api/deployment/update/deploy.sh --help
 ```
 
 ## 9. Важливі межі поточного запуску
@@ -216,7 +216,7 @@ systemctl --user restart nodexora-api.service
 journalctl --user -u nodexora-api.service -n 50 --no-pager
 ```
 
-Звичайне оновлення з Windows виконується тією самою командою `bash apps/api/deployment/deploy.sh`.
+Звичайне оновлення з Windows виконується тією самою командою `bash apps/api/deployment/update/deploy.sh`.
 Скрипт керує цим сервісом; додатковий запуск `node` або `nohup` не потрібний.
 API та Nginx перевірені після service stop/start. Сервер для цієї перевірки не
 перезавантажувався, тому фактичний boot-тест ще не виконувався.

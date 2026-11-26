@@ -29,6 +29,7 @@ activate_release() (
     [[ $(systemctl --user show "$unit" -p WorkingDirectory --value) == "$target" ]] || die 'Unexpected service working directory.'
     systemctl --user is-enabled --quiet "$unit" || die 'Enable the user service before deploying.'
     [[ $(loginctl show-user "$(id -un)" -p Linger --value) == yes ]] || die 'User lingering is required for startup at boot.'
+    curl --fail --silent --show-error --max-time 5 --output /dev/null http://127.0.0.1/api/v1/health || die 'Existing Nginx API route must work before deployment.'
 
     cd -- "$stage"
     node -e '
@@ -44,8 +45,9 @@ import assert from 'node:assert/strict';
 import { buildApp } from './dist/app.js';
 import { readConfig } from './dist/config/env.js';
 import { LinuxSystemProvider } from './dist/infrastructure/linux/system.provider.js';
+import { createLinuxSources } from './dist/infrastructure/linux/monitoring.provider.js';
 readConfig();
-const app = await buildApp({ provider: new LinuxSystemProvider(), logger: false });
+const app = await buildApp({ provider: new LinuxSystemProvider(), monitoringSources: createLinuxSources(), logger: false });
 try {
   assert.equal((await app.inject('/api/v1/health')).statusCode, 200);
   assert.equal((await app.inject('/api/')).statusCode, 200);
@@ -53,6 +55,14 @@ try {
   const response = await app.inject('/api/v1/system/memory');
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().data.source, 'linux');
+  for (const route of ['system/swap', 'system/info', 'system/load', 'system/uptime', 'system/cpu', 'system/disks', 'system/temperature', 'system/sessions', 'network/interfaces', 'network/traffic', 'network/connections', 'processes', 'services', 'routing/routes', 'logs', 'metrics/current']) {
+    const result = await app.inject(`/api/v1/${route}`);
+    assert.equal(result.statusCode, 200, `${route}: ${result.body}`);
+  }
+  const current = (await app.inject('/api/v1/metrics/current')).json().data;
+  for (const resource of ['memory', 'swap', 'info', 'load', 'uptime', 'disks', 'network', 'processes', 'services', 'sessions', 'routes']) {
+    assert.ok(current.sections[resource].data, `${resource}: ${current.sections[resource].reason}`);
+  }
 } finally {
   await app.close();
 }
@@ -119,6 +129,9 @@ SMOKE
     done
     curl --fail --silent --show-error --max-time 10 --output /dev/null \
         http://127.0.0.1/api/v1/system/memory
+    for resource in system/swap system/info system/load system/uptime system/cpu system/disks system/temperature system/sessions network/interfaces network/traffic network/connections processes services routing/routes logs metrics/current; do
+        curl --fail --silent --show-error --max-time 10 --output /dev/null "http://127.0.0.1/api/v1/$resource"
+    done
 
     # These exact paths were validated above; never delete an arbitrary caller path.
     [[ $(realpath -e "$backup") == "$backup" && ! -L $backup ]] || die 'Unexpected backup path.'
@@ -134,9 +147,9 @@ if [[ ${1:-} == --activate ]]; then
 fi
 if [[ ${1:-} == --help ]]; then
     printf '%s\n' \
-        'Usage: bash deployment/deploy.sh' \
+        'Usage: bash deployment/update/deploy.sh' \
         'Run locally using Git Bash on Windows, or Bash on Linux.' \
-        'Optional: DEPLOY_HOST=user@host SSH_KEY=/path/to/key bash deployment/deploy.sh' \
+        'Optional: DEPLOY_HOST=user@host SSH_KEY=/path/to/key bash deployment/update/deploy.sh' \
         'Defaults: dvor@192.168.1.33 and ~/.ssh/id_ed25519_hermes_server.' \
         'Builds/tests locally, ships dist, installs Linux production dependencies, restarts and checks API.' \
         'Requires ~/nodexora/api, enabled nodexora-api user service with linger, and Nginx /api/ route.'
@@ -144,7 +157,7 @@ if [[ ${1:-} == --help ]]; then
 fi
 [[ $# == 0 ]] || die 'Unknown argument; use --help.'
 
-api_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+api_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)
 deploy_host=${DEPLOY_HOST:-dvor@192.168.1.33}
 ssh_key=${SSH_KEY:-$HOME/.ssh/id_ed25519_hermes_server}
 [[ $deploy_host =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]*@[a-zA-Z0-9_][a-zA-Z0-9_.-]*$ ]] || die 'Expected DEPLOY_HOST=user@hostname (or IPv4).'
@@ -185,5 +198,5 @@ printf -v remote_command 'tar -xzf %q -C %q && rm -f -- %q && tr -d %q | bash -s
     "$remote_stage/release.tgz" "$remote_stage" "$remote_stage/release.tgz" $'\r' "$remote_stage" "$build_node_major"
 printf '%s\n' '4/4 Verify Linux release, restart API and check Nginx; roll back if activation fails.'
 # Execute the activation instructions through stdin; do not install the script in the release.
-ssh "${ssh_options[@]}" "$deploy_host" "$remote_command" < "$api_dir/deployment/deploy.sh"
+ssh "${ssh_options[@]}" "$deploy_host" "$remote_command" < "$api_dir/deployment/update/deploy.sh"
 printf 'Swagger: http://%s/api/\n' "${deploy_host#*@}"

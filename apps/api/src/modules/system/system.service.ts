@@ -3,10 +3,14 @@ import { AppError } from '../../common/errors/app-error.js';
 import type { SystemProvider } from '../../infrastructure/linux/system.provider.js';
 
 export class SystemService {
-  constructor(private readonly provider: SystemProvider) {}
+  constructor(
+    private readonly provider: SystemProvider,
+    private readonly cached?: { memory(): MemoryInfo; swap(): SwapInfo },
+  ) {}
 
   async getSwapInfo(): Promise<SwapInfo> {
     try {
+      if (this.cached) return this.cached.swap();
       const snapshot = await this.provider.getSwapInfo();
       const usedBytes = snapshot.totalBytes - snapshot.freeBytes;
       const enabled = snapshot.totalBytes > 0;
@@ -24,6 +28,7 @@ export class SystemService {
 
   async getMemoryInfo(): Promise<MemoryInfo> {
     try {
+      if (this.cached) return this.cached.memory();
       const snapshot = await this.provider.getMemoryInfo();
       const usedBytes = snapshot.totalBytes - snapshot.availableBytes;
       return {

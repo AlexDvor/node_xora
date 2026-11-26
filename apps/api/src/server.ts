@@ -2,11 +2,16 @@ import { buildApp } from './app.js';
 import { readConfig } from './config/env.js';
 import { LinuxSystemProvider } from './infrastructure/linux/system.provider.js';
 import { MockSystemProvider } from './infrastructure/linux/mock-system.provider.js';
+import {
+  createLinuxSources,
+  createMockSources,
+} from './infrastructure/linux/monitoring.provider.js';
 
 const config = readConfig();
 
 const app = await buildApp({
   provider: config.provider === 'linux' ? new LinuxSystemProvider() : new MockSystemProvider(),
+  monitoringSources: config.provider === 'linux' ? createLinuxSources() : createMockSources(),
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

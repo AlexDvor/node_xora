@@ -2,11 +2,13 @@
 
 Self-hosted Debian monitoring API, following [PROJECT_SPEC](../PROJECT_SPEC.md)
 and its current owner decision to keep the API self-contained and publish OpenAPI.
-The local API provides health, RAM and swap endpoints. Angular is outside the current scope.
-Swap is a local addition; it has not been deployed or verified against Debian yet.
-The earlier health/RAM runtime artifact has been deployed on Debian. The API is managed by
+The API implements the read-only monitoring resources, shared collector, bounded
+history and WebSocket described in [MONITORING_CONTRACTS.md](MONITORING_CONTRACTS.md).
+Angular remains outside the current scope. The runtime is deployed on Debian and managed by
 the enabled `nodexora-api.service` user unit for `dvor`; user lingering is enabled.
-The service and Nginx responses were checked without rebooting the server.
+An owner-initiated reboot on 2026-11-26 confirmed automatic API/Nginx startup.
+The final release was deployed afterward; see the actual verification records in
+[MONITORING_PLAN.md](MONITORING_PLAN.md).
 
 ## Structure
 
@@ -14,6 +16,10 @@ The service and Nginx responses were checked without rebooting the server.
 - `src/modules/health`: public health route and its complete schema.
 - `src/modules/system`: resource routes, HTTP controller, calculations and feature types.
 - `src/modules/system/schemas`: complete RAM and swap endpoint schemas, including Swagger metadata.
+- `src/modules/metrics`: shared collector, quality, snapshots and bounded history.
+- `src/modules/network`, `processes`, `services`, `routing`, `logs`: read-only resources.
+- `src/realtime`: WebSocket protocol, subscriptions, heartbeat and shared journal feed.
+- `src/config/monitoring.ts`: documented LAN development limits and preferred interface.
 - `src/hooks`: named HTTP hooks, including no-cache.
 - `src/common`: shared HTTP envelopes, error schema and application errors.
 - `src/plugins/swagger.plugin.ts`: generated OpenAPI and Swagger UI.
@@ -92,7 +98,7 @@ Open **Git Bash** (the Bash terminal installed with Git for Windows), then run:
 
 ```bash
 cd /d/code/node_xora/apps/api
-bash deployment/deploy.sh
+bash deployment/update/deploy.sh
 ```
 
 The script performs four steps:
@@ -111,8 +117,8 @@ Target: `dvor@192.168.1.33`; key: `~/.ssh/id_ed25519_hermes_server`.
 Optional overrides and help:
 
 ```bash
-SSH_KEY="$HOME/.ssh/id_ed25519_hermes_server" DEPLOY_HOST=dvor@192.168.1.33 bash deployment/deploy.sh
-bash deployment/deploy.sh --help
+SSH_KEY="$HOME/.ssh/id_ed25519_hermes_server" DEPLOY_HOST=dvor@192.168.1.33 bash deployment/update/deploy.sh
+bash deployment/update/deploy.sh --help
 ```
 
 Run this script **locally**, not on Debian. It requires Git Bash, Node.js/npm,
@@ -186,7 +192,7 @@ If port 80 is blocked, inspect the firewall before changing its rules.
 
 ### Automatic startup and service commands
 
-The unit source is [deployment/nodexora-api.service](deployment/nodexora-api.service).
+The unit source is [deployment/setup/nodexora-api.service](deployment/setup/nodexora-api.service).
 Its installed location is `/home/dvor/.config/systemd/user/nodexora-api.service`,
 outside the runtime directory. It runs `%h/.local/bin/node dist/server.js` with
 working directory `%h/nodexora/api`, `SYSTEM_PROVIDER=linux` and `PORT=3000`.
@@ -219,8 +225,18 @@ To stop/start explicitly, use `systemctl --user stop nodexora-api.service` and
 registration. Do not start it with `nohup` or use the obsolete `api.pid` file.
 Logs go to the user journal; the old `api.log`, if retained, is historical.
 
-Startup configuration (`enabled`, `Linger=yes`) and real service stop/start through
-deployment were verified. A physical reboot and a forced-crash test were not performed.
+Startup configuration (`enabled`, `Linger=yes`), deployment stop/start and an actual
+owner-initiated reboot were verified on 2026-11-26. A forced-crash test was not performed.
+
+### Existing Nginx: adding WebSocket
+
+Routine `deploy.sh` does not change Nginx. The reviewed exact `/api/v1/ws` location
+is in `deployment/setup/nginx-api.conf`, retaining LAN allow/deny, forwarding Upgrade
+and using a 60 s timeout. The owner applied the one-time migration with sudo on
+2026-11-26; that completed migration script and its remote setup directory have
+been removed. Keep the current snippet as the configuration source. Do not rerun
+first-install `apply-nginx.sh` over an existing installation. Future Nginx changes
+need an explicitly reviewed update, backup, `nginx -t` and reload.
 
 Read RAM directly from PowerShell:
 
@@ -249,8 +265,9 @@ It checks API liveness, not availability of Linux metrics.
 Success envelope: `{ "data": ... }`. Error envelope: `{ "error": { "code": ..., "message": ... } }`.
 Missing, unreadable or invalid Linux memory data: 503
 `MEMORY_INFO_UNAVAILABLE`; unknown values are never replaced with zero.
-RAM is read once per REST request. No background collector or history exists yet;
-centralized collection and WebSocket belong to the real-time phase.
+The shared collector reads RAM every 2 seconds; repeated REST requests return the
+same sample and its original timestamp. A failed/stale collector sample returns
+the existing 503 error. RAM's response fields and formulas remain unchanged.
 
 `GET /api/v1/system/swap` is public and returns `{ "data": ... }` with:
 
@@ -265,9 +282,56 @@ centralized collection and WebSocket belong to the real-time phase.
 The existing request flow also applies to swap: `system.routes.ts` references
 `schemas/swap.schema.ts` and `controller.getSwap`; `SystemService.getSwapInfo`
 calculates usage, while `LinuxSystemProvider.getSwapInfo` reads `/proc/meminfo`
-once per request and `parseSwapMeminfo` validates `SwapTotal` and `SwapFree`.
+once per scheduled collection and `parseSwapMeminfo` validates `SwapTotal` and `SwapFree`.
 Reading requires OS permission for that file, without sudo or shell commands.
 Missing, unreadable, malformed or inconsistent data returns 503
 `SWAP_INFO_UNAVAILABLE`; it is not treated as disabled swap. The response uses
-`Cache-Control: no-store`. No new query parameters, collector or history are added.
+`Cache-Control: no-store`. Swap has no query parameters; REST/WS share its collector sample.
 The existing RAM response contract is unchanged.
+
+## Monitoring endpoints
+
+All routes below use prefix `/api/v1`, require no application login and are read-only.
+Complete fields, units, quality, errors, limits and WS examples are in
+[MONITORING_CONTRACTS.md](MONITORING_CONTRACTS.md); HTTP schemas are in Swagger.
+
+| GET path | Result |
+|---|---|
+| `/system/info`, `/system/uptime`, `/system/load` | Host identity, boot identity, load averages |
+| `/system/cpu`, `/system/disks`, `/system/temperature` | Shared CPU, root capacity and sensor samples |
+| `/network/interfaces`, `/network/traffic`, `/network/connections` | Addresses, rates and bounded sockets |
+| `/processes` | Filtered/sorted page; cursor resets on snapshot change |
+| `/system/sessions` | Debian logind login sessions and unique-user count |
+| `/services`, `/services/:name?scope=user` | Loaded system/current-user services and known-unit details |
+| `/routing/routes` | IPv4/IPv6 routes and multipath next hops |
+| `/logs` | Bounded NodeXora user-journal page |
+| `/metrics/current`, `/metrics/history` | Shared dashboard snapshot and 15-minute in-memory history |
+| `/ws` (WebSocket Upgrade) | One connection with validated topic subscriptions |
+
+Public IP lookup, authentication, administration and persistent history are not enabled.
+`health` remains liveness, not proof that every provider is available.
+
+To repeat Linux verification without installing test files into runtime, from Git Bash:
+
+```bash
+ssh -i ~/.ssh/id_ed25519_hermes_server dvor@192.168.1.33 \
+  'cd /home/dvor/nodexora/api && /home/dvor/.local/bin/node --input-type=module' \
+  < deployment/checks/verify-server.mjs
+```
+
+This performs read-only comparisons and a 35-second, three-client WebSocket check.
+It does not reboot, deploy or alter OS services. Such a multi-client check needs
+explicit owner authorization when run on a shared server.
+
+## Which deployment files are maintained
+
+See [deployment/README.md](deployment/README.md) for a short Ukrainian guide to every
+file and its launch command. Files are grouped into `update` (routine deployment),
+`setup` (fresh-server configuration) and `checks` (read-only verification).
+
+Deployment scripts are operational tools, not application runtime modules.
+The completed WS migration and one-time fingerprint script were removed.
+The temporary server verification JSON was removed at the owner's request; the plan
+retains the summary of the LAN, release identity and startup checks. The plan remains
+useful until its frontend-only check is completed; the contracts document remains
+the REST/WS handoff, since OpenAPI does not describe the WS protocol.

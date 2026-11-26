@@ -2,9 +2,15 @@
 
 Дата створення: 2026-11-25.
 
+**Оновлення 2026-11-26:** основний backend M0–M12 реалізовано в погодженому
+scope; M2 лишається відкладеним. Підсумки фактичних перевірок — §19.
+Frontend-only перевірка зеленої індикації та відсутності дубльованого polling
+залишається відкритою до реалізації Angular; apps/web не змінювався.
+Поточні контракти й engineering-рішення — [MONITORING_CONTRACTS.md](MONITORING_CONTRACTS.md).
+
 **Призначення:** робочий план для поетапного навчання й реалізації backend, який повертає перевірені показники Debian-сервера для майбутнього Angular dashboard.
 
-Це план, а не звіт про виконання. Майбутні endpoints, назви нових полів і повідомлень нижче — проєкт контрактів для уточнення на відповідному етапі. Наявні API не змінюємо мовчки. Кожен етап виконуємо окремим невеликим завданням: пояснення → погоджений обсяг → реалізація → перевірка → пояснення результату. Створення цього документа не означає початку реалізації всіх етапів.
+Поточний звіт реалізації — §18–19; попередні записи зберігають історію. Це план і журнал фактичного виконання. Майбутні endpoints, назви нових полів і повідомлень нижче — проєкт контрактів для уточнення на відповідному етапі. Наявні API не змінюємо мовчки. Початковий порядок: пояснення → погоджений обсяг → реалізація → перевірка → пояснення результату. 2026-11-26 власник явно розширив завдання до всього backend-плану й дозволив deploy, multi-client перевірку та reboot; узгоджені межі — §18. Створення цього документа не означає початку реалізації всіх етапів.
 
 ## 1. Джерела вимог і поточний стан
 
@@ -17,17 +23,20 @@
 - Backend: Node.js, TypeScript, Fastify; самостійний npm-проєкт у `apps/api`.
 - Внутрішній RAM DTO: `apps/api/src/modules/system/system.types.ts`; загальні response envelopes — `common/types/api-response.ts`. `packages/shared` видалено; публічний контракт — OpenAPI із route schemas, а не спільний npm package.
 - Swagger UI — `/api/`, OpenAPI JSON — `/api/json`, YAML — `/api/yaml`. Описуються тільки реально реалізовані endpoints; локальні запити виконуються без входу.
-- Є `GET /api/v1/health`, `GET /api/v1/system/memory` та локально реалізований `GET /api/v1/system/swap`, усі без автентифікації. Swap ще не розгорнуто й не перевірено на Debian.
+- Є health, host info, RAM/swap/load/uptime, CPU, disks, temperature, network, processes, sessions, services, routes, logs, snapshots/history та WebSocket; усі без application authentication. Реалізовані контракти — [MONITORING_CONTRACTS.md](MONITORING_CONTRACTS.md).
 - RAM читається з `/proc/meminfo`; є явний mock provider для Windows.
 - Поточний RAM-контракт: `totalBytes`, `availableBytes`, `usedBytes`, `usedPercent`, `collectedAt`, `source`.
 - Є перевірка конфігурації, централізований формат помилок та тести базового API. За рішенням власника автентифікацію поточного локального API прибрано; це також відображено в Swagger і deploy-скрипті.
-- Центрального metrics collector, історії, WebSocket, користувацьких сесій та інших ресурсів поки немає.
-- Nginx snippet і скрипт застосування підготовлені в `deployment/`. Поточний snippet ще не містить WebSocket proxying.
-- `deployment/deploy.sh` — окремий локальний Bash entry point для перевірки/збірки та передавання compiled artifact на Debian. Він не застосовує Nginx config; під час оновлення зупиняє й запускає вже налаштований user service systemd; інструкція та обмеження описані в README.
+- Реалізовано спільний collector, bounded history, WebSocket і logind sessions. Історія лише в пам’яті; public IP disabled, Angular не змінено.
+- Nginx snippet і скрипт застосування підготовлені в `deployment/`. Поточний snippet містить окремий WS location; власник застосував update через sudo, nginx -t і reload 2026-11-26.
+- `deployment/update/deploy.sh` — окремий локальний Bash entry point для перевірки/збірки та передавання compiled artifact на Debian. Він не застосовує Nginx config; під час оновлення зупиняє й запускає вже налаштований user service systemd; інструкція та обмеження описані в README.
 - Поточний release archive містить лише `dist`, `package.json` і `package-lock.json`. Документація, scripts та `release.json` до runtime-папки не передаються; активація виконується через SSH stdin, а production dependencies встановлюються на Debian.
 - Новий склад архіву перевірено локальним запуском deploy із тестовими SSH/SCP: build/type-check і 10 тестів пройшли, archive whitelist та передавання activation input перевірені. Згодом новий runtime-only формат успішно розгорнуто під час налаштування systemd; див. запис автозапуску нижче.
 
 Останній перевірений серверний стан із попередньої роботи, який потрібно повторно звірити в M0:
+
+Нижче наведена історична база до роботи 2026-11-26; її повторну перевірку та
+актуальний runtime зафіксовано в §19. Вона не перекриває новіший звіт.
 
 - Debian 13.7; Node.js 26.13.1; користувач `dvor`.
 - Backend у `/home/dvor/nodexora/api`, працює під керуванням `systemd --user` як `nodexora-api.service` без root і слухає `127.0.0.1:3000`. Unit enabled; `Linger=yes`; журнали — user journal.
@@ -236,7 +245,7 @@ REST залишається способом запитати стан. Післ
 
 **Читання моніторингу — GET.** GET не змінює Linux і не запускає адміністративну дію. Фільтрація, сортування й вибір діапазону передаються query parameters. Автооновлення не вимагає POST.
 
-Нижче — план endpoints. Окрім двох наявних, це пропозиції; реалізуємо лише endpoint поточного етапу.
+Нижче — перелік endpoints. Основний backend-перелік реалізовано 2026-11-26; optional public IP залишається disabled. Чинні HTTP-контракти генеруються у Swagger; WS-контракт описано окремо.
 
 | Метод і шлях | Призначення | Доступ / етап |
 |---|---|---|
@@ -349,33 +358,33 @@ WebSocket додаємо після перевірених REST contracts і col
 
 Наведені checklists описують повне завершення етапів, а не відсутність будь-якої роботи.
 Health, базова RAM, Swagger і deployment script уже є. Nginx route та попереднє
-розгортання перевірялися раніше. Поточні локальні зміни ще потрібно розгорнути;
+розгортання перевірялися раніше. Оновлений backend розгорнуто й перевірено 2026-11-26;
 це не означає повторне створення основи. M2 відкладений і не блокує моніторинг.
 Базовий RAM endpoint сам по собі не робить весь M3 завершеним.
 
 ### M0 — Звірити середовище й актуальність розгортання
 
-- [ ] Пояснити власнику актуальні локальні та серверні папки, commands і process lifecycle.
-- [ ] Перед deploy перевірити, що вже налаштований Nginx route працює; не застосовувати setup script повторно для звичайного оновлення API.
-- [ ] Перевірити health через `192.168.1.33`, а memory — звичайним GET без додаткових заголовків; port 3000 залишити loopback.
-- [ ] Розгорнути самостійний `apps/api` без shared package; перевірити `/api/`, локальні assets, OpenAPI JSON та Try it out через Nginx.
-- [ ] Використовувати локальний `deployment/deploy.sh` для наступних оновлень; відрізняти source directory на Windows від compiled release на Debian. Для кожного запуску записувати фактичний результат, не вважати наявність скрипта доказом успішного deploy.
-- [ ] Прибрати застарілі пояснення SSH-tunnel access під час відповідної code/doc зміни; не відновлювати port forwarding.
-- [ ] Записати версії, спосіб запуску, розташування logs, спосіб зупинки й поточні права. Без паролів і токенів.
+- [x] Пояснити власнику актуальні локальні та серверні папки, commands і process lifecycle.
+- [x] Перед deploy перевірити, що вже налаштований Nginx route працює; не застосовувати setup script повторно для звичайного оновлення API.
+- [x] Перевірити health через `192.168.1.33`, а memory — звичайним GET без додаткових заголовків; port 3000 залишити loopback.
+- [x] Розгорнути самостійний `apps/api` без shared package; перевірити `/api/`, локальні assets, OpenAPI JSON та виконання HTTP-запитів за згенерованими контрактами через Nginx. Ручне натискання Try it out у браузері не було окремим тестом.
+- [x] Використовувати локальний `deployment/update/deploy.sh` для наступних оновлень; відрізняти source directory на Windows від compiled release на Debian. Для кожного запуску записувати фактичний результат, не вважати наявність скрипта доказом успішного deploy.
+- [x] Прибрати застарілі пояснення SSH-tunnel access під час відповідної code/doc зміни; не відновлювати port forwarding.
+- [x] Записати версії, спосіб запуску, розташування logs, спосіб зупинки й поточні права. Без паролів і токенів.
 
 **Готовність:** власник розуміє запуск; фактичний Nginx route перевірений; локальний код і deployed revision ідентифіковані. Потрібний sudo-крок виконується явно, а не обходиться.
 
 ### M1 — Зафіксувати API-контракти та якість даних
 
-**Частково виконано локально — 2026-11-25:** для наявного RAM endpoint уточнено семантику, додано success/error examples у schema та перевірку згенерованого OpenAPI; повністю доступна RAM перевірена окремим тестом. Також погоджено й реалізовано окремий swap-контракт, включно з disabled/null поведінкою, DTO, schema, examples та OpenAPI перевіркою. Деталі — записи 16–17. Це не завершує M1 для всіх ресурсів.
+**Статус 2026-11-26:** контракти реалізованих backend-ресурсів, quality/null, compatibility, HTTP schemas, WS v1 і query limits зафіксовано. Джерело подробиць — MONITORING_CONTRACTS.md; попередні інкременти — записи 16–17.
 
-- [ ] Погодити одиниці, null/status, timestamps, schema version і політику сумісності наявного RAM endpoint.
-- [ ] Визначити DTO лише для найближчих ресурсів; не створювати заготовки всіх майбутніх модулів.
-- [ ] Для кожного DTO додати runtime schema, success/error examples, семантику полів і межі значень.
-- [ ] Визначити перевірку відповідності TypeScript contracts і schemas, щоб вони не розходилися.
-- [ ] Для нового HTTP endpoint перевіряти появу в Swagger, правильні responses/units; OpenAPI генерується зі schemas, не ведеться окремою ручною копією. WS message contracts описувати окремо: Swagger не замінює протокол live-повідомлень.
-- [ ] Визначити загальні query limits та правила валідації.
-- [ ] Відобразити уточнення §4.1–4.2 у контрактах: transport status, client interval, current server address, sample identity, RSS-based MEM% і login sessions.
+- [x] Погодити одиниці, null/status, timestamps, schema version і політику сумісності наявного RAM endpoint.
+- [x] Визначити DTO лише для найближчих ресурсів; не створювати заготовки всіх майбутніх модулів.
+- [x] Для кожного DTO додати runtime schema, success/error examples, семантику полів і межі значень.
+- [x] Визначити перевірку відповідності TypeScript contracts і schemas, щоб вони не розходилися.
+- [x] Для нового HTTP endpoint перевіряти появу в Swagger, правильні responses/units; OpenAPI генерується зі schemas, не ведеться окремою ручною копією. WS message contracts описувати окремо: Swagger не замінює протокол live-повідомлень.
+- [x] Визначити загальні query limits та правила валідації.
+- [x] Відобразити уточнення §4.1–4.2 у контрактах: transport status, client interval, current server address, sample identity, RSS-based MEM% і login sessions.
 
 **Готовність:** backend і майбутній Angular мають однозначне пояснення кожного поля, включно з недоступними даними. Документація відрізняє поточний API від майбутнього.
 
@@ -385,73 +394,73 @@ Health, базова RAM, Swagger і deployment script уже є. Nginx route т
 
 ### M3 — System info, RAM, swap, uptime, load
 
-**Частково виконано локально — 2026-11-25:** реалізовано swap endpoint, DTO, schema/OpenAPI, Linux і mock provider та тести; RAM-контракт збережено. Деталі — запис 17. Перевірка swap на Debian не виконана; весь M3 не завершено.
+**Статус 2026-11-26:** M3 backend реалізовано та перевірено на Debian; RAM-контракт збережено. Capabilities доступні у metrics/current, а не вгадуються з hostname.
 
-- [ ] Додати hostname, OS/kernel/arch, CPU topology metadata і capabilities доступних providers.
+- [x] Додати hostname, OS/kernel/arch, CPU topology metadata і capabilities доступних providers.
 - [x] Зберегти й перевірити наявну RAM-формулу; додати swap без ділення на нуль (локальні перевірки).
-- [ ] Додати uptime/boot identity й load averages з явними одиницями.
-- [ ] Створити відповідні GET endpoints та mocks.
-- [ ] Звірити з Debian: `/etc/os-release`, `uname`, `free -b`, `uptime`, `/proc/meminfo` у близькі моменти часу.
+- [x] Додати uptime/boot identity й load averages з явними одиницями.
+- [x] Створити відповідні GET endpoints та mocks.
+- [x] Звірити з Debian: `/etc/os-release`, `uname`, `free -b`, `uptime`, `/proc/meminfo` у близькі моменти часу.
 
 **Готовність:** відповіді відповідають джерелам; реальні нулі відрізняються від відсутніх полів. Формули й допустима методика порівняння описані, а не підігнані під скріншот.
 
 ### M4 — Central collector і CPU
 
-- [ ] Погодити CPU formula та baseline lifecycle із розділу 5.
-- [ ] Реалізувати shared collection scheduler/cache для CPU/RAM/swap/load/uptime.
-- [ ] Додати total/per-core CPU і sample window у GET response.
-- [ ] Покрити warming-up, counter reset, reboot, hotplug, нульову дельту та повільну collection task.
-- [ ] Перевірити, що повторні HTTP requests не створюють collectors і не змінюють baseline на клієнта.
-- [ ] Порівняти з `top`/`mpstat`, якщо інструмент доступний, за співставних інтервалів і CPU accounting semantics.
+- [x] Погодити CPU formula та baseline lifecycle із розділу 5.
+- [x] Реалізувати shared collection scheduler/cache для CPU/RAM/swap/load/uptime.
+- [x] Додати total/per-core CPU і sample window у GET response.
+- [x] Покрити warming-up, counter reset, boot identity reset, hotplug, нульову дельту та повільну collection task тестовими fixtures; фактичний reboot перевірено окремо.
+- [x] Перевірити, що повторні HTTP requests не створюють collectors і не змінюють baseline на клієнта.
+- [x] Порівняти з `top`/`mpstat`, якщо інструмент доступний, за співставних інтервалів і CPU accounting semantics.
 
 **Готовність:** кілька клієнтів читають один набір вимірювань; percent обчислюється з правильних дельт; stale/error behavior видимий.
 
 ### M5 — Disk capacity й sensors
 
-- [ ] Додати `/` через statfs, metadata mount і формулу відсотка.
-- [ ] Погодити перелік додаткових mounts, фільтри pseudo filesystems і відсутність довільних paths.
-- [ ] Оглянути доступні temperature sensors, labels, units і необхідні права без зміни драйверів.
-- [ ] Додати незалежні collector tasks і GET endpoints.
-- [ ] Перевірити з `df -B1` та доступними sensor readings; пояснити reserved-space differences.
+- [x] Додати `/` через statfs, metadata mount і формулу відсотка.
+- [x] Погодити перелік додаткових mounts, фільтри pseudo filesystems і відсутність довільних paths.
+- [x] Оглянути доступні temperature sensors, labels, units і необхідні права без зміни драйверів.
+- [x] Додати незалежні collector tasks і GET endpoints.
+- [x] Перевірити з `df -B1` та доступними sensor readings; пояснити reserved-space differences.
 
 **Готовність:** capacity не плутається з throughput; недоступний датчик не створює неправдиву температуру.
 
 ### M6 — Network interfaces, traffic, connections
 
-- [ ] Додати interfaces, addresses/prefixes, link state та stable interface identity.
-- [ ] Реалізувати вибір Current IP Address за §4.1: фактична адреса сервера, preferred interface за неоднозначності, явний стан при втраті адреси.
-- [ ] Реалізувати rate calculation і reset handling; погодити total aggregation.
-- [ ] Обрати netlink-бібліотеку після оцінки підтримки Debian/Node і вартості залежностей.
-- [ ] Додати interfaces/traffic GET. Connections — окремим невеликим кроком із bounded output і правами.
-- [ ] Public IP залишити disabled до погодження зовнішнього запиту, privacy, cache, timeout і failure behavior. Не приймати довільний external URL від клієнта.
-- [ ] Звірити з `ip -j address`, `ip -s link`, `ss`, якщо вони доступні; використовувати однаковий scope і часові вікна.
+- [x] Додати interfaces, addresses/prefixes, link state та stable interface identity.
+- [x] Реалізувати вибір Current IP Address за §4.1: фактична адреса сервера, preferred interface за неоднозначності, явний стан при втраті адреси.
+- [x] Реалізувати rate calculation і reset handling; погодити total aggregation.
+- [x] Оцінити netlink-доступ: обрано встановлений iproute2 як rtnetlink-клієнт із JSON та fixed argv, без додаткової native netlink-бібліотеки; рішення задокументовано.
+- [x] Додати interfaces/traffic GET. Connections — окремим невеликим кроком із bounded output і правами.
+- [x] Public IP залишити disabled до погодження зовнішнього запиту, privacy, cache, timeout і failure behavior. Не приймати довільний external URL від клієнта.
+- [x] Звірити з `ip -j address`, `ip -s link`, `ss`, якщо вони доступні; використовувати однаковий scope і часові вікна.
 
 **Готовність:** RX/TX мають правильні одиниці й elapsed window; зміна інтерфейсу не дає негативного трафіку; total не містить прихованого double count.
 
 ### M7 — Processes і підключені користувачі Debian
 
-- [ ] Додати bounded `/proc` scan із cancellation/timeout та UID resolution cache.
-- [ ] Зафіксувати CPU шкалу, RSS і process identity; збирати процеси незалежно від кількості клієнтів.
-- [ ] Реалізувати GET зі стабільним sort/tie-breaker, фільтрами, limit і snapshot-aware pagination.
-- [ ] Якщо snapshot між сторінками змінився, явно resync/новий cursor; не обіцяти консистентний список через простий offset у живому наборі.
-- [ ] Top Processes отримувати сортуванням спільного snapshot, не окремим OS scan. UID filter є фільтром процесів, а не вмістом вкладки Users.
-- [ ] Для Users додати read-only logind provider, GET sessions, дозволені metadata й окремі counts users/sessions за §4.2; реалізувати через system module без окремого runtime сервісу.
-- [ ] Перевірити два входи одного UID, SSH/local sessions, idle, logout, closing, session без TTY/remoteHost та відмову logind. Порівняти з доступним `loginctl`, не створюючи й не закриваючи реальні входи в автоматичних тестах.
-- [ ] Зафіксувати `MEM% = RSS / MemTotal * 100` та identity denominator; перевірити відсутню RAM і незалежність від формули used RAM машини.
-- [ ] Перевірити PID reuse, завершення процесу під час читання, denied fields, Unicode/spaces у command і redaction.
-- [ ] Звірити з `ps`/`top` із однаковими визначеннями CPU/RSS.
+- [x] Додати bounded `/proc` scan із cancellation/timeout та UID resolution cache.
+- [x] Зафіксувати CPU шкалу, RSS і process identity; збирати процеси незалежно від кількості клієнтів.
+- [x] Реалізувати GET зі стабільним sort/tie-breaker, фільтрами, limit і snapshot-aware pagination.
+- [x] Якщо snapshot між сторінками змінився, явно resync/новий cursor; не обіцяти консистентний список через простий offset у живому наборі.
+- [x] Top Processes отримувати сортуванням спільного snapshot, не окремим OS scan. UID filter є фільтром процесів, а не вмістом вкладки Users.
+- [x] Для Users додати read-only logind provider, GET sessions, дозволені metadata й окремі counts users/sessions за §4.2; реалізувати через system module без окремого runtime сервісу.
+- [x] Перевірити два входи одного UID, SSH/local sessions, idle, logout, closing, session без TTY/remoteHost та відмову logind. Порівняти з доступним `loginctl`, не створюючи й не закриваючи реальні входи в автоматичних тестах.
+- [x] Зафіксувати `MEM% = RSS / MemTotal * 100` та identity denominator; перевірити відсутню RAM і незалежність від формули used RAM машини.
+- [x] Перевірити PID reuse, завершення процесу під час читання, denied fields, Unicode/spaces у command і redaction.
+- [x] Звірити з `ps`/`top` із однаковими визначеннями CPU/RSS.
 
 **Готовність:** одна проблемна PID-директорія не ламає таблицю; команда не розкриває secrets; pagination і CPU/MEM percentages мають описану семантику. Users показує login sessions, не process owners; кілька входів одного UID збільшують sessionsCount, але не connectedUsersCount.
 
 ### M8 — Services і routing
 
-- [ ] Через systemd D-Bus читати units і `LoadState`, `ActiveState`, `SubState`, description; визначити scope: system services чи також user services.
-- [ ] Для картки Active Services погодити selected units та семантику running count; не видавати їх за всі сервіси ОС.
-- [ ] Не прирівнювати active до listening/healthy. Node API може бути звичайним процесом без unit: тоді не вигадувати йому systemd state.
-- [ ] Порти сервісів отримувати лише з окремої перевірки sockets/metadata з явним джерелом; не hardcode «Nginx = 80/443».
-- [ ] Через rtnetlink читати IPv4/IPv6 routes: destination/prefix, gateway, interface, metric, table, protocol; підтримати multipath або явно позначити обмеження.
-- [ ] Реалізувати GET services/detail/routes; за доступності read-only change notifications переводять cache в актуальний стан.
-- [ ] Звірити із `systemctl show/list-units` і `ip -j route`; не змінювати units/routes у тестах.
+- [x] Через systemd D-Bus читати units і `LoadState`, `ActiveState`, `SubState`, description; визначити scope: system services чи також user services.
+- [x] Для картки Active Services погодити selected units та семантику running count; не видавати їх за всі сервіси ОС.
+- [x] Не прирівнювати active до listening/healthy. Node API може бути звичайним процесом без unit: тоді не вигадувати йому systemd state.
+- [x] Порти сервісів отримувати лише з окремої перевірки sockets/metadata з явним джерелом; не hardcode «Nginx = 80/443».
+- [x] Через rtnetlink читати IPv4/IPv6 routes: destination/prefix, gateway, interface, metric, table, protocol; підтримати multipath або явно позначити обмеження.
+- [x] Реалізувати GET services/detail/routes; cache оновлюється periodic refresh 10 s. Change notifications не підключалися: обрано передбачений планом polling fallback.
+- [x] Звірити із `systemctl show/list-units` і `ip -j route`; не змінювати units/routes у тестах.
 
 **Готовність:** API чітко відрізняє state, availability, health і permissions; підвищені права не додаються без окремої необхідності.
 
@@ -459,12 +468,12 @@ Health, базова RAM, Swagger і deployment script уже є. Nginx route т
 
 ### M9 — Logs: спочатку REST
 
-- [ ] Погодити scope доступного journal і redaction; не давати читання всієї файлової системи.
-- [ ] Обрати journal interface. Якщо використовується `journalctl`, запускати лише у provider через fixed executable і validated argv без shell construction.
-- [ ] Поля: cursor, timestamp, boot identity, priority, unit/identifier, PID за наявності, message. Відсутні metadata не вгадувати.
-- [ ] Реалізувати bounded GET із unit/priority/time filters і opaque cursor. Для `journalctl` обрати structured output, а не парсити текст для термінала.
-- [ ] Описати cursor direction, end-of-page, journal rotation, недоступний cursor і gaps. Відсутність прав не представляти порожнім успішним журналом.
-- [ ] Перевірити довгі/багаторядкові записи, Unicode, control characters та помилки джерела.
+- [x] Погодити scope доступного journal і redaction; не давати читання всієї файлової системи.
+- [x] Обрати journal interface. Якщо використовується `journalctl`, запускати лише у provider через fixed executable і validated argv без shell construction.
+- [x] Поля: cursor, timestamp, boot identity, priority, unit/identifier, PID за наявності, message. Відсутні metadata не вгадувати.
+- [x] Реалізувати bounded GET із unit/priority/time filters і opaque cursor. Для `journalctl` обрати structured output, а не парсити текст для термінала.
+- [x] Описати cursor direction, end-of-page, journal rotation, недоступний cursor і gaps. Відсутність прав не представляти порожнім успішним журналом.
+- [x] Перевірити довгі/багаторядкові записи, Unicode, control characters та помилки джерела.
 
 **Готовність:** journal читається лише в погоджених межах; API не утримує необмежений journal у RAM і не виконує довільні команди.
 
@@ -472,38 +481,39 @@ Health, базова RAM, Swagger і deployment script уже є. Nginx route т
 
 ### M10 — Dashboard snapshot і коротка історія
 
-- [ ] Зібрати `metrics/current` зі спільного cache, per-section timestamps/quality і capabilities.
-- [ ] Забезпечити спільний memory/uptime sample для повторюваних блоків dashboard; зберегти поточні картки незалежними від вибору history range.
-- [ ] Погодити ring buffer limits і реалізувати тільки потрібні графіки.
-- [ ] Додати validated GET history із обмеженням series/range/points.
-- [ ] Позначати реальні gaps, startup і недостатню історію для обраного діапазону.
-- [ ] Перевірити memory cost і restart behavior. SQLite не додавати без вимоги persistent history.
+- [x] Зібрати `metrics/current` зі спільного cache, per-section timestamps/quality і capabilities.
+- [x] Забезпечити спільний memory/uptime sample для повторюваних блоків dashboard; зберегти поточні картки незалежними від вибору history range.
+- [x] Погодити ring buffer limits і реалізувати тільки потрібні графіки.
+- [x] Додати validated GET history із обмеженням series/range/points.
+- [x] Позначати реальні gaps, startup і недостатню історію для обраного діапазону.
+- [x] Перевірити memory cost і restart behavior. SQLite не додавати без вимоги persistent history.
 
 **Готовність:** всі реалізовані картки можуть отримати узгоджений за метаданими snapshot; графіки не містять вигаданих даних до startup.
 
 ### M11 — Live updates через WebSocket
 
-- [ ] Зафіксувати версію протоколу з розділу 8.
-- [ ] Додати сумісний Fastify WS plugin, gateway і subscription manager.
-- [ ] Почати з CPU/RAM/traffic; потім окремими кроками підключити решту перевірених тем.
-- [ ] Для logs додати bounded live reader із cursor/gap/resume policy. Не створювати reader на кожен browser; групувати однакові subscriptions або використовувати спільне джерело з фільтрацією.
-- [ ] Налаштувати WS Upgrade у Nginx, зберігаючи наявну LAN-конфігурацію Nginx.
-- [ ] Перевірити відкритий handshake без credentials, invalid messages, heartbeat, backpressure, reconnect, dedup і cleanup.
-- [ ] Перевірити client intervals 2/5/10/30 s, pause/resume, відсутність паралельного polling, Users updates і втрату зеленої індикації після disconnect/heartbeat failure.
-- [ ] REST лишити доступним для initial load/history/manual refresh; не змушувати всі queries переходити на WS.
+- [x] Зафіксувати версію протоколу з розділу 8.
+- [x] Додати сумісний Fastify WS plugin, gateway і subscription manager.
+- [x] Почати з CPU/RAM/traffic; потім окремими кроками підключити решту перевірених тем.
+- [x] Для logs додати bounded live reader із cursor/gap/resume policy. Не створювати reader на кожен browser; групувати однакові subscriptions або використовувати спільне джерело з фільтрацією.
+- [x] Налаштувати WS Upgrade у Nginx, зберігаючи наявну LAN-конфігурацію Nginx.
+- [x] Перевірити відкритий handshake без credentials, invalid messages, heartbeat, backpressure, reconnect, dedup і cleanup.
+- [x] Перевірити backend client intervals 2/5/10/30 s, pause/resume/reconnect і heartbeat failure; Users передаються зі спільного snapshot. Angular contract забороняє паралельний polling.
+- [ ] Перевірити реальну зелену індикацію та відсутність паралельного polling у майбутньому Angular UI — відкладено до frontend, apps/web у цій задачі не змінюється.
+- [x] REST лишити доступним для initial load/history/manual refresh; не змушувати всі queries переходити на WS.
 
 **Готовність:** один socket на клієнт; нові підписники не множать Linux collection; API переживає disconnect без витоків handlers/processes/memory. Live logs явно повідомляють про пропуски.
 
 ### M12 — Перевірка цілого моніторингу та передача до Angular
 
-- [ ] Провести read-only Linux integration checks усіх реалізованих providers під тим самим OS user, що запускає API.
-- [ ] Виміряти власні CPU/RAM API, collection duration, event loop delay, response size і WS queue під погодженим сценарієм кількох клієнтів. Записати умови, версії й фактичні результати.
-- [ ] Вибрати прийнятні resource budgets разом із власником за результатами вимірювань; не вигадувати production SLO або thresholds.
-- [ ] Відпрацювати SIGTERM, reboot/restart, втрату provider, stale data, відмову журналу й Nginx reload.
-- [x] Налаштувати постійний запуск: `nodexora-api.service` як user unit `dvor`, enabled і `Linger=yes`, Linux provider, user journal, restart-on-failure; unit поза runtime-папкою. Окремого env file або sudo для поточного налаштування не потрібно. Boot-тест і власні retention rules журналу не виконані.
-- [ ] Оновити README, API examples, список підтримуваних/недоступних метрик і process lifecycle.
-- [ ] Підготувати для Angular OpenAPI, REST приклади, WS message contracts/flow, loading/error/partial/stale states і правила форматування одиниць; не імпортувати backend source у frontend.
-- [ ] Звірити поведінку зі скріншотом: зв'язок, Auto-refresh, history тільки для графіків, Users login sessions, IP сервера та повторювані RAM/uptime.
+- [x] Провести read-only Linux integration checks усіх реалізованих providers під тим самим OS user, що запускає API.
+- [x] Виміряти власні CPU/RAM API, collection duration, event loop delay і response size під погодженим сценарієм трьох клієнтів; межу WS queue перевірити локальним backpressure-тестом. Реальне насичення мережевої черги на сервері не створювалося. Записати умови, версії й фактичні результати.
+- [x] Вибрати прийнятні resource budgets разом із власником за результатами вимірювань; не вигадувати production SLO або thresholds.
+- [x] Відпрацювати SIGTERM, reboot/restart, втрату provider, stale data, відмову журналу й Nginx reload.
+- [x] Налаштувати постійний запуск: `nodexora-api.service` як user unit `dvor`, enabled і `Linger=yes`, Linux provider, user journal, restart-on-failure; unit поза runtime-папкою. Окремого env file або sudo для поточного налаштування не потрібно. Фактичний reboot перевірений 2026-11-26. Для own journal використовуються системні retention rules; окремі правила очищення не змінювалися.
+- [x] Оновити README, API examples, список підтримуваних/недоступних метрик і process lifecycle.
+- [x] Підготувати для Angular OpenAPI, REST приклади, WS message contracts/flow, loading/error/partial/stale states і правила форматування одиниць; не імпортувати backend source у frontend.
+- [x] Звірити backend-контракт зі скріншотом: зв'язок, Auto-refresh, history тільки для графіків, Users login sessions, IP сервера та повторювані RAM/uptime. Реальна візуальна перевірка Angular залишається frontend-завданням.
 
 **Готовність:** результат кожного доступного блоку dashboard пояснюється джерелом і перевіркою. Невпроваджені features позначені явно; немає автоматичного переходу до адміністрування.
 
@@ -559,11 +569,11 @@ Health, базова RAM, Swagger і deployment script уже є. Nginx route т
 - Які серверні зміни застосовано, ким і до якої revision.
 - Відомі обмеження, відкриті рішення, наступний невеликий крок.
 
-**Найближчий крок:** завершити опис залишених M1-рішень для наступного невеликого ресурсу M3. RAM і swap реалізовано локально; решта M3 відкрита. Серверна звірка M0 та перевірка swap на Debian залишаються окремим явно погодженим кроком, без автоматичного deploy.
+**Наступний напрям після backend:** реалізація Angular за MONITORING_CONTRACTS.md окремим завданням; frontend-перевірки не позначати виконаними за backend-тестами. Поточний runtime і реальні перевірки — записи 18–19.
 
 ## 14. Запис перевірки скрипта оновлення — 2026-11-25
 
-- Додано локальний entry point `deployment/deploy.sh` та правило LF для Bash-файлів у `.gitattributes`.
+- Додано локальний entry point `deployment/update/deploy.sh` та правило LF для Bash-файлів у `.gitattributes`.
 - Повний запуск виконано через Git Bash на Windows: `npm ci`, перевірка типів, усі 10 тестів, build у свіжий тимчасовий каталог, архів і передавання через SSH.
 - На Debian встановлено лише production dependencies; перед зупинкою старого API compiled JavaScript перевірено через Fastify injection із реальним Linux provider, включно з тодішнім контрактом доступу та RAM.
 - Нова збірка активована в `/home/dvor/nodexora/api`; перевірені Swagger UI/assets, OpenAPI та RAM через Nginx. Процес залишився non-root; Nginx config не змінювався. Це історична перевірка попередньої версії, до поточного спрощення API.
@@ -574,7 +584,7 @@ Health, базова RAM, Swagger і deployment script уже є. Nginx route т
 ## 15. Налаштування автозапуску — 2026-11-25
 
 - На сервері виявлено чинні user manager systemd і `Linger=yes`; використано user unit без sudo.
-- Unit із `deployment/nodexora-api.service` встановлено в `/home/dvor/.config/systemd/user/` і перевірено через `systemd-analyze --user verify`.
+- Unit із `deployment/setup/nodexora-api.service` встановлено в `/home/dvor/.config/systemd/user/` і перевірено через `systemd-analyze --user verify`.
 - Старий перевірений ручний процес зупинено, obsolete PID file прибрано. API запущено через `systemctl --user`; стан enabled/active підтверджено. Nginx також enabled.
 - Deploy переведено на stop/start того самого сервісу; rollback також використовує його. README, scripts і unit не потрапляють у runtime archive.
 - Виправлено Windows CRLF для передавання activation instructions у Linux shell. Після виправлення повне оновлення пройшло: локальні build/type checks, 10 тестів, Linux preflight, systemd activation та HTTP Swagger/RAM через Nginx.
@@ -601,3 +611,72 @@ Health, базова RAM, Swagger і deployment script уже є. Nginx route т
 - `README.md` описує новий API і його локальний статус; `apps/PROJECT_SPEC.md` актуалізовано щодо реалізованих ресурсів.
 - Локально виконано `npm run format`, `npm run format:check`, `npm run build`, `npm run check`, `npm test`: успішно, 19 із 19 тестів пройшли. Дані тестів синтетичні, не показники сервера.
 - Серверних підключень, deploy або змін server revision не було. Порівняння з `/proc/meminfo`/`free -b` на Debian, перевірка Nginx нового endpoint і reboot не виконані. M0, M1 та M3 не позначаються повністю завершеними.
+
+## 18. Погоджений повний backend scope — 2026-11-26
+
+- Власник явно дозволив виконати весь backend-план, завершальний deploy і серверні перевірки. Колишнє обмеження «лише один інкремент» цим запитом розширено; apps/web залишається поза задачею.
+- Погоджено: лише диск `/`; назви процесів без argv/environment; усі доступні loaded system і current-user services; журнали тільки NodeXora; history за 15 хвилин у пам’яті; без public-IP запитів і login.
+- Власник доручив обрати й перевірити технічні limits. Значення з `src/config/monitoring.ts`, джерела, одиниці, partial/stale/error поведінку та протокол наведено в MONITORING_CONTRACTS.md. CPU iowait трактовано як idle, process CPU — 100% на одне logical CPU, network total — лише фактично виявлений enp5s0 while UP, preferred address — global IPv4 на ньому.
+- Замість native netlink/D-Bus бібліотек використано встановлені iproute2/systemctl/busctl/loginctl як read-only protocol clients із fixed executable/argv. Для температури обрано hwmon з driver labels і fault checks; не вигадуються CPU package labels.
+- Після фактичних вимірювань власник погодив development comparison budgets для сценарію трьох клієнтів: RSS ≤ 200 MiB, mean Event Loop delay ≤ 50 ms. Це не production SLO і не гарантія для іншого навантаження.
+- Власник особисто застосував одноразовий `update-nginx-ws.sh` через sudo (після виконання скрипт прибрано під час cleanup). nginx -t пройшов до й після зміни; exact WS location зберігає LAN policy. Збережена резервна копія snippet. Рутинний deploy не змінює Nginx.
+- Власник дозволив reboot і виконав його під час повторного deploy. Після повернення доступу перевірено boot identity, enabled/active user service, Linger=yes, Nginx і health. Перерваний deploy не зараховано успішним; фінальну збірку розгорнуто заново.
+
+## 19. Звіт завершальної перевірки — 2026-11-26
+
+### Реалізація й локальні перевірки
+
+- Збережено самостійний npm-проєкт, наявні health/RAM/swap контракти, HTTP envelopes, no-store і доступ без credentials. RAM/swap тепер читають shared collector sample з первісним timestamp, а не збираються для кожного браузера.
+- Реалізовано M3 ресурси; M4 collector і CPU; M5 root disk/sensors; M6 addresses/traffic/bounded connections; M7 bounded process scan, UID cache, snapshot pagination і logind sessions; M8 services/details/IPv4+IPv6 routing; M9 own journal; M10 composed snapshot/history; M11 WS v1, subscriptions, heartbeat, backpressure та один shared event-driven journal reader.
+- Route files короткі; schemas винесені у feature schema files, calculations — у services, OS reads — у providers, HTTP envelopes — у controllers. Порожніх майбутніх modules, login чи керування Linux не додано.
+- `npm run format`, `npm run format:check`, `npm run build`, `npm run check` успішні. Підсумкові 40/40 тестів пройшли. Реальний loopback WS test запускався з дозволом на локальні sockets; mock не видається за Linux integration.
+- Тести охоплюють units/formulas, null/zero, CPU reset/boot/hotplug, BigInt deltas, PID reuse, UID cache, vanished/denied processes, Unicode/parentheses у comm, logind filter/idle/missing metadata, відмову provider/journal, cursor resync, history bounds/gaps, cache sharing, invalid WS messages, усі delivery intervals, pause/resume/reconnect, heartbeat timeout, oversized payload/snapshot і connection cap.
+- OpenAPI генерується зі schemas; типізовані mock examples не є вимірами сервера. Ручне натискання Swagger Try it out не було окремою перевіркою; відповідні HTTP-запити, OpenAPI й UI/assets перевірені автоматично.
+
+### Debian, deploy та reboot
+
+- Debian 13.7, Node.js v26.13.1, kernel 6.12.115+deb13.1-amd64. Перевірки виконано як dvor, UID 1000, без root API. Listener залишився 127.0.0.1:3000; доступ LAN через Nginx.
+- Штатний `deployment/update/deploy.sh` виконав clean install, type check, tests, fresh build, runtime-only archive, Linux preflight, systemd activation і HTTP checks. Runtime містить лише dist, package manifests і production node_modules; документація/scripts не встановлювалися в API runtime.
+- SHA-256 усіх compiled JS і обох package manifests звірено з локальною збіркою; результат fingerprint-перевірки зафіксовано в цьому звіті. Проміжний `runtime-manifest.json` прибрано під час подальшого cleanup. Це ідентифікує непідкомічену збірку без вигаданого git revision.
+- Boot ID змінився з `cf3cf6d6-ca5d-45a7-b44b-e16c8b9e479a` на `be111291-fd0e-4920-89f9-9bf887affd33`. Після owner-initiated reboot API/Nginx автоматично повернулися active. Остаточний runtime розгорнуто після цього reboot; примусовий crash/другий reboot фінальної збірки не виконувався.
+- Перевіркою service state зафіксовано enabled/active, Linger=yes, non-root user і loopback listener; дубльований текстовий snapshot прибрано під час cleanup. Після відключення WS клієнтів окремий journalctl reader не залишився активним. Staging невдалого, перерваного reboot релізу спочатку залишено для огляду, а потім видалено під час cleanup після успішних перевірок.
+- LAN-перевірка підтвердила REST, Swagger/assets, WS handshake, Linux snapshot і update із Windows через 192.168.1.33; дубльований `lan.json` прибрано під час cleanup.
+- `deployment/checks/verify-server.mjs` звіряє hostname/OS/kernel, RAM із /proc і free -b, swap, statfs/df, ip addresses/counters/routes, bounded sockets із ss, process RSS/UID із ps, sensor raw files, sessions, services і own journal. Допуски для неодночасних читань задані перед перевіркою в скрипті; вони не є production targets.
+- Top-порівняння з неідентичними вікнами має лише observational статус. Для незалежної CPU-перевірки взято два /proc/stat readings одразу після сусідніх API samples з polling 100 ms; допуск 5 percentage points зафіксовано до цього тесту.
+
+### Фактичний фінальний результат (2026-11-26T14:01:11.509Z)
+
+- Усі 14 секцій мають quality=ok.
+- Незалежна CPU-звірка: API 5.598%, raw /proc/stat 5.959%; вікна 2.003/1.959 s.
+- Три WS клієнти, 35 s через Nginx: 229 updates, 6 heartbeat pings, 3 live-log updates, errors=[].
+- RSS наприкінці: 101.59 MiB; mean Event Loop delay 20.146 ms, max 51.151 ms. Погоджені development budgets пройдені.
+- missedCollections=0, timedOutCollections=0; metrics/current response 91359 bytes.
+- Перевірено 67 runtime fingerprints. Тимчасовий JSON-звіт видалено за запитом власника; підсумкові виміри збережено тут. Цифри не є постійними характеристиками сервера.
+
+### Межі висновку та залишені роботи
+
+- Backend у погодженому LAN development scope реалізовано, розгорнуто і перевірено. Це не заявка на production readiness, довготривалий soak test або повну підтримку будь-якого Debian host.
+- Реальна Angular зелена індикація, браузерний reconnect/backoff і перевірка відсутності дубльованого polling залишаються для frontend; контракт передано, apps/web не змінювався.
+- Не ввімкнені за рішенням власника: M2 login/access control, optional external public IP, persistent history, administration, додаткові mounts. Connections не мають PID mapping; services не мають вигаданих ports/health; routes використовують polling fallback.
+- Під час першої перевірки попередньої збірки до reboot спостерігався cumulative max Event Loop delay близько 9043 ms; причина не встановлена. На фінальній збірці після reboot це не відтворилося. Це додаткова причина не видавати короткий development test за production гарантію.
+- Серверні provider-denial/journal-rotation faults не створювалися шляхом зміни ОС; failure/stale/timeout/cursor поведінка перевірена контрольованими fixtures. Примусового crash і аварійного rollback на робочому сервері не було.
+- Системні journal retention rules не змінювалися. RSS виміряно в короткому multi-client сценарії; довготривалий memory leak/повний 15-minute soak цим не доведені. Capacity history перевірена bounded fake-clock fixtures.
+- Наступний окремий запит: Angular implementation за MONITORING_CONTRACTS.md. Відкладені UI-only пункти не позначені виконаними за backend evidence.
+
+## 20. Cleanup API та серверних тимчасових файлів — 2026-11-26
+
+- За запитом власника перевірено імпорти всіх source files, npm scripts/dependencies, deployment tools і посилання в документації. Source-файлів, недосяжних із server/tests, не виявлено; типи й regression tests не є runtime-сміттям.
+- Прибрано виконану одноразову WS migration (`deployment/update-nginx-ws.sh`), одноразовий fingerprint tool (`deployment/runtime-manifest.mjs`) і дубльовані snapshots `runtime-manifest.json`, `release-and-service.txt`, `lan.json`. Підсумковий серверний JSON-звіт також згодом видалено за прямим запитом власника; §19 зберігає лише текстовий підсумок перевірки.
+- Потрібні operational sources залишено й пояснено в README: routine deploy/rollback, current Nginx snippet, systemd unit, fresh-install setup, повторювані Linux і LAN checks. Вони не мають запускатися разом із кожним API request.
+- Прибрано невикористані imports, незастосовувані config keys, зайві controller re-exports і дубльоване створення host provider у server composition. TypeScript noUnusedLocals/noUnusedParameters увімкнені для наступних змін. API-контракти й формули збережено.
+- Під deployment lock перевірено realpath, власника та відсутність symlinks і видалено лише створені цією роботою `/home/dvor/nodexora/.deploy.K4TJlH` та `/home/dvor/nodexora/nginx-ws-20261126`. У /tmp інших nodexora-залишків користувача dvor не знайдено. Runtime, installed unit, чинний Nginx і recovery backups не є тимчасовими файлами й не видалялися.
+- Після серверного cleanup unit залишився active, health через Nginx повернув status=ok. Новий deploy/restart для локального cleanup не виконувався; §19 описує раніше перевірену deployed збірку, а не нові performance виміри.
+- MONITORING_PLAN.md збережено: у M11 лишається відкрита frontend-only перевірка реального Angular UI. MONITORING_CONTRACTS.md збережено як чинний опис WS v1, shared samples та Angular handoff, яких не містить OpenAPI.
+- Після cleanup успішні format/format:check, build, check із noUnusedLocals/noUnusedParameters і всі 40/40 regression tests. Збережені verify-server.mjs та verify-lan.mjs пройшли node --check. Додаткових тестів структури файлів або нового deploy для цієї чистки не створювалося.
+
+## 21. Організація deployment — 2026-11-26
+
+- За запитом власника operational files згруповано в `deployment/update`, `deployment/setup` та `deployment/checks`; призначення кожного файла й команди наведені простою українською в `deployment/README.md`.
+- Оновлено пошук API root і шлях до власного activation script у deploy.sh, документаційні посилання й recursive LF rules у .gitattributes. Script і Nginx snippet залишені разом у setup, як вимагає first-install setup.
+- Це локальна зміна структури deployment files; application API, runtime-папка Debian і встановлені service/Nginx не змінюються. Deploy чи server setup у цій задачі не запускалися.
+- Перевірено Bash syntax і --help, визначення API root самим перенесеним скриптом із примусовою зупинкою перед npm ci (без install/build/SSH/deploy), LF attributes, Node syntax, format:check, build/check і всі 40/40 наявних тестів. Застарілих посилань на попередні шляхи шести перенесених файлів не виявлено.

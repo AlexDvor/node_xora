@@ -243,11 +243,15 @@ to detailed rules instead of creating competing architecture specifications.
 
 ## Current implementation and deployment status
 
-The local API implements health, RAM, swap, Swagger and the scoped no-cache hook.
-Swap is implemented and tested locally; its Debian integration and deployment
-have not been verified in this increment. Existing server checks below predate swap.
-CPU, disks, network, processes, connected-user sessions, services, routes,
-logs, history and WebSocket remain planned work, not existing endpoints.
+The API implements health, host info, RAM/swap/load/uptime, delta CPU, root disk
+capacity, hwmon temperature, network addresses/rates/connections, bounded process
+pages, logind sessions, loaded service state, IPv4/IPv6 routes, the NodeXora user
+journal, shared snapshots, 15-minute in-memory history and WebSocket subscriptions.
+The runtime is deployed on Debian. Current contracts, source choices, limits and
+Angular handoff are in [MONITORING_CONTRACTS.md](api/MONITORING_CONTRACTS.md).
+Authentication, public IP lookup, persistent history, administration and Angular
+implementation remain out of scope. `MONITORING_PLAN.md` records actual checks and
+remaining verification/owner decisions; implemented is not a production guarantee.
 
 The current runtime build, including the file-layout refactor and public monitoring
 access, has been deployed and checked through Nginx. Runtime is now managed by the
@@ -261,7 +265,9 @@ Logs are in the user journal. Nginx is also enabled for boot.
 The deployment script stops and starts this user service, including rollback;
 it does not use nohup or a PID file. Routine deployment does not change the unit.
 Unit validation, enabled/active state, lingering, real deployment stop/start and
-HTTP checks were performed. A server reboot and forced-crash test were not performed.
+HTTP checks were performed. An owner-initiated reboot on 2026-11-26 confirmed
+automatic API/Nginx startup (changed boot identity); the final release was deployed
+afterward. A forced-crash test was not performed.
 Always distinguish these checks from evidence of a physical boot cycle.
 
 The deployment archive must contain only compiled `dist`, `package.json` and
@@ -433,7 +439,11 @@ The backend must use a modular, feature-based architecture with clear separation
 
 ## 8.1 Backend Directory Structure
 
-The current implemented structure is:
+The foundation layout is shown below. Monitoring additionally implements
+`modules/metrics`, `network`, `processes`, `services`, `routing`, `logs`,
+`realtime`, and the corresponding Linux providers. This tree is a reading guide,
+not an exhaustive inventory; see the API README and MONITORING_CONTRACTS.md for
+the current resource contracts. Existing layer responsibilities still apply.
 
 ```text
 apps/api/

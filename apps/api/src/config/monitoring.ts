@@ -1,0 +1,21 @@
+/** LAN development limits, not measured production targets. See MONITORING_PLAN §18. */
+export const monitoringPolicy = {
+  fastIntervalMs: 2000,
+  processIntervalMs: 3000,
+  slowIntervalMs: 10000,
+  taskTimeoutMs: 5000,
+  historyRetentionMs: 15 * 60 * 1000,
+  historyMaxPoints: 1000,
+  maxProcesses: 4096,
+  commandMaxBytes: 2 * 1024 * 1024,
+  commandTimeoutMs: 3000,
+  maxSockets: 2048,
+  maxConnections: 16,
+  maxSubscriptions: 16,
+  maxWsPayload: 4096,
+  maxWsBufferedBytes: 1024 * 1024,
+  heartbeatMs: 15000,
+  staleMultiplier: 3,
+  preferredInterface: 'enp5s0',
+  logUnit: 'nodexora-api.service',
+} as const;
