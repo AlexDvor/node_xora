@@ -23,6 +23,7 @@ export async function registerRealtime(app: FastifyInstance, collector: MetricsC
   await app.register(websocket, {
     options: { maxPayload: policy.maxWsPayload, perMessageDeflate: false },
   });
+
   const sockets = new Set<WebSocket>();
   const feed = new JournalFeed(collector.sources.source);
   const validate = new Ajv({ strict: true }).compile(clientMessageSchema);
@@ -32,25 +33,33 @@ export async function registerRealtime(app: FastifyInstance, collector: MetricsC
       fastJson(serverMessageSchema(topic) as Parameters<typeof fastJson>[0]),
     ]),
   );
+
   app.addHook('onClose', async () => {
     feed.stop();
+
     for (const socket of sockets) socket.terminate();
   });
   app.get('/api/v1/ws', { websocket: true, schema: { hide: true } }, (socket) => {
     if (sockets.size >= policy.maxConnections) {
       socket.close(1013, 'Connection limit');
+
       return;
     }
+
     sockets.add(socket);
+
     const subscriptions = new Map<
       string,
       { id: string; interval: number; lastSent: number; sequence: number; quality: string | null }
     >();
     let alive = true;
     let cleaned = false;
+
     const send = (message: unknown) => {
       if (socket.readyState !== 1) return;
+
       const encoded = typeof message === 'string' ? message : JSON.stringify(message);
+
       if (exceedsBackpressure(socket.bufferedAmount, Buffer.byteLength(encoded))) {
         socket.send(
           JSON.stringify({
@@ -61,28 +70,36 @@ export async function registerRealtime(app: FastifyInstance, collector: MetricsC
           }),
         );
         socket.close(1013, 'Slow client; reconnect and resync');
+
         return;
       }
+
       socket.send(encoded);
     };
+
     const deliver = (
       topic: string,
       type: 'snapshot' | 'update',
       requestId: string | null = null,
     ) => {
       const subscription = subscriptions.get(topic);
+
       if (!subscription || topic === 'logs') return;
+
       const resource = topicResources[topic];
       const sample = resource ? collector.get(resource) : null;
       // metrics.current has no synthetic collection timestamp; each section owns its time.
       const sequence = sample?.sequence ?? collector.current().sequence;
+
       if (
         type === 'update' &&
         sequence <= subscription.sequence &&
         sample?.quality === subscription.quality
       )
         return;
+
       const data = sample ?? collector.current();
+
       send(
         serializers.get(topic)!({
           protocolVersion: 1,
@@ -100,8 +117,10 @@ export async function registerRealtime(app: FastifyInstance, collector: MetricsC
       subscription.quality = sample?.quality ?? null;
       subscription.lastSent = performance.now();
     };
+
     const onPage = (data: unknown, sequence: number) => {
       const sub = subscriptions.get('logs');
+
       if (sub)
         send(
           serializers.get('logs')!({
@@ -117,6 +136,7 @@ export async function registerRealtime(app: FastifyInstance, collector: MetricsC
           }),
         );
     };
+
     const onGap = () => {
       if (subscriptions.has('logs'))
         send({
@@ -127,8 +147,10 @@ export async function registerRealtime(app: FastifyInstance, collector: MetricsC
           reason: 'JOURNAL_GAP',
         });
     };
+
     feed.on('page', onPage);
     feed.on('gap', onGap);
+
     const updates = setInterval(() => {
       try {
         for (const [topic, sub] of subscriptions)
@@ -140,42 +162,57 @@ export async function registerRealtime(app: FastifyInstance, collector: MetricsC
     const heartbeat = setInterval(() => {
       if (!alive) {
         socket.terminate();
+
         return;
       }
+
       alive = false;
       socket.ping();
     }, policy.heartbeatMs);
+
     socket.on('pong', () => {
       alive = true;
     });
     socket.on('error', () => cleanup());
+
     function cleanup() {
       if (cleaned) return;
+
       cleaned = true;
       clearInterval(updates);
       clearInterval(heartbeat);
+
       if (subscriptions.has('logs')) feed.release();
+
       subscriptions.clear();
       feed.off('page', onPage);
       feed.off('gap', onGap);
       sockets.delete(socket);
     }
+
     socket.on('close', cleanup);
     // Install immediately: do not await I/O before binding the message handler.
     socket.on('message', (raw, binary) => {
       try {
         if (binary) throw new Error('Binary message');
+
         const message: unknown = JSON.parse(raw.toString());
+
         if (!validate(message)) throw new Error('Invalid message');
+
         const { type, requestId, topic, intervalSeconds } = message as ClientMessage;
+
         if (type === 'unsubscribe') {
           if (topic === 'logs' && subscriptions.has(topic)) feed.release();
+
           subscriptions.delete(topic);
           send({ protocolVersion: 1, type: 'unsubscribed', requestId, topic });
+
           return;
         }
         if (!subscriptions.has(topic) && subscriptions.size >= policy.maxSubscriptions)
           throw new Error('Subscription limit');
+
         const existing = subscriptions.get(topic);
         const sub = {
           id: existing?.id ?? randomUUID(),
@@ -184,6 +221,7 @@ export async function registerRealtime(app: FastifyInstance, collector: MetricsC
           sequence: -1,
           quality: null as string | null,
         };
+
         subscriptions.set(topic, sub);
         send({
           protocolVersion: 1,
@@ -194,8 +232,10 @@ export async function registerRealtime(app: FastifyInstance, collector: MetricsC
           intervalSeconds: intervalSeconds ?? 5,
           streamId: collector.streamId,
         });
+
         if (topic === 'logs') {
           if (!existing) feed.acquire();
+
           send({
             protocolVersion: 1,
             type: 'resync_required',

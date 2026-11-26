@@ -680,3 +680,12 @@ Health, базова RAM, Swagger і deployment script уже є. Nginx route т
 - Оновлено пошук API root і шлях до власного activation script у deploy.sh, документаційні посилання й recursive LF rules у .gitattributes. Script і Nginx snippet залишені разом у setup, як вимагає first-install setup.
 - Це локальна зміна структури deployment files; application API, runtime-папка Debian і встановлені service/Nginx не змінюються. Deploy чи server setup у цій задачі не запускалися.
 - Перевірено Bash syntax і --help, визначення API root самим перенесеним скриптом із примусовою зупинкою перед npm ci (без install/build/SSH/deploy), LF attributes, Node syntax, format:check, build/check і всі 40/40 наявних тестів. Застарілих посилань на попередні шляхи шести перенесених файлів не виявлено.
+
+## 22. Локальний Prettier та читабельність API — 2026-11-26
+
+- Збережено наявний локальний Prettier 3.10.1; конфігурацію доповнено явними semicolons/bracket spacing, додано API-local EditorConfig. Format/check тепер також охоплюють deployment/checks/*.mjs; LF attributes поширені на .mjs. Глобальні налаштування й apps/web не змінювалися.
+- Функції, методи та логічні блоки відділені порожніми рядками. Схемні скорочення o/s/nn замінено зрозумілими objectSchema/stringSchema/nullableNumberSchema; intervalFor використовує прості if branches із тими самими інтервалами. Формули, contracts, джерела та authority не змінено.
+- Після кожної логічної групи змін усі 40/40 наявних тестів пройшли. Фінальні format:check, build, type check та Node syntax checks успішні. Порожні рядки є convention написання: Prettier їх зберігає, але не додає автоматично.
+- Ця робота виконується локально; серверних підключень, deploy чи нових Linux/performance вимірів не було.
+- Виявлено й виправлено ignore rule, що приховував source-модуль src/modules/logs від Git/Prettier: до наявних API-local .gitignore правил додано лише виняток для цього каталогу. Усі 65 source files тепер потрапляють у commit.
+- Повний згенерований OpenAPI для 20 HTTP paths порівняно через deep equality зі source-знімком попереднього commit, завантаженим лише з Git: контракт не змінився. Тимчасовий каталог порівняння видалено після перевірки.

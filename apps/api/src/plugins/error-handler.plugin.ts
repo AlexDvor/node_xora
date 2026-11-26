@@ -9,11 +9,14 @@ export function installErrorHandler(app: FastifyInstance) {
         .code(error.statusCode)
         .send({ error: { code: error.code, message: error.message } });
     }
+
     const candidate =
       error instanceof Error && 'statusCode' in error ? error.statusCode : undefined;
     const status =
       typeof candidate === 'number' && candidate >= 400 && candidate < 500 ? candidate : 500;
+
     if (status === 500) request.log.error({ err: error }, 'Request failed');
+
     return reply.code(status).send({
       error: {
         code: status === 500 ? 'INTERNAL_SERVER_ERROR' : 'INVALID_REQUEST',

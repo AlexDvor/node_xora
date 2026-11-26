@@ -1,23 +1,30 @@
 import { sampleSchema, responses, noQuery } from '../../common/schemas/monitoring.schema.js';
 import { monitoringExamples } from '../metrics/metrics.examples.js';
 import {
-  object as o,
+  object as objectSchema,
   array,
-  string as s,
-  nullableString as ns,
-  nullableNumber as nn,
+  string as stringSchema,
+  nullableString as nullableStringSchema,
+  nullableNumber as nullableNumberSchema,
 } from '../../common/schemas/monitoring.schema.js';
-export const routesDataSchema = o({
+
+export const routesDataSchema = objectSchema({
   routes: array(
-    o({
-      family: s,
-      destination: s,
-      gateway: ns,
-      interface: ns,
-      metric: nn,
-      table: s,
-      protocol: ns,
-      multipath: array(o({ gateway: ns, interface: ns, weight: nn })),
+    objectSchema({
+      family: stringSchema,
+      destination: stringSchema,
+      gateway: nullableStringSchema,
+      interface: nullableStringSchema,
+      metric: nullableNumberSchema,
+      table: stringSchema,
+      protocol: nullableStringSchema,
+      multipath: array(
+        objectSchema({
+          gateway: nullableStringSchema,
+          interface: nullableStringSchema,
+          weight: nullableNumberSchema,
+        }),
+      ),
     }),
   ),
 });

@@ -10,6 +10,7 @@ export const systemRoutes: FastifyPluginAsync<{ service: SystemService }> = asyn
   options,
 ) => {
   const controller = createSystemController(options.service);
+
   app.addHook('onSend', noCacheHook);
   app.get('/swap', {
     schema: swapRouteSchema,

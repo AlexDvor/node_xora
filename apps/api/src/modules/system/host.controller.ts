@@ -1,4 +1,5 @@
 import type { HostService } from './host.service.js';
+
 export function createHostController(service: HostService) {
   return {
     async getInfo() {

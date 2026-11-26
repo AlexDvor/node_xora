@@ -9,6 +9,7 @@ export interface ServiceUnit {
   subState: string;
   mainPid: number | null;
 }
+
 export async function readServices(signal: AbortSignal): Promise<ServiceUnit[]> {
   const read = async (scope: 'system' | 'user') => {
     // systemctl is a D-Bus client. Its JSON output avoids an extra native D-Bus dependency.
@@ -26,6 +27,7 @@ export async function readServices(signal: AbortSignal): Promise<ServiceUnit[]> 
         signal,
       ),
     ) as { unit: string; description: string; load: string; active: string; sub: string }[];
+
     return rows.map((row) => ({
       name: row.unit,
       scope,
@@ -36,9 +38,12 @@ export async function readServices(signal: AbortSignal): Promise<ServiceUnit[]> 
       mainPid: null,
     }));
   };
+
   const [system, user] = await Promise.all([read('system'), read('user')]);
+
   return [...system, ...user];
 }
+
 export async function readServiceDetail(
   scope: 'system' | 'user',
   name: string,
@@ -62,9 +67,11 @@ export async function readServiceDetail(
       .split('\n')
       .map((line) => {
         const i = line.indexOf('=');
+
         return [line.slice(0, i), line.slice(i + 1)];
       }),
   );
+
   return {
     name: fields.get('Id') ?? name,
     scope,
@@ -95,6 +102,7 @@ export async function readSessions(signal: AbortSignal) {
   const sessions = [];
   let partial = false;
   let failed = 0;
+
   for (const [sessionId] of list.data[0].slice(0, 256)) {
     try {
       const text = await readCommand(
@@ -130,10 +138,12 @@ export async function readSessions(signal: AbortSignal) {
           .split('\n')
           .map((line) => {
             const i = line.indexOf('=');
+
             return [line.slice(0, i), line.slice(i + 1)];
           }),
       );
       const session = normalizeSession(sessionId, properties, await readBoottime());
+
       if (session) sessions.push(session);
     } catch {
       partial = true;
@@ -143,6 +153,7 @@ export async function readSessions(signal: AbortSignal) {
   if (list.data[0].length > 256) partial = true;
   if (list.data[0].length > 0 && failed === Math.min(list.data[0].length, 256))
     throw new Error('Session metadata unavailable');
+
   return {
     scope: 'logind online/active interactive user sessions',
     connectedUsersCount: new Set(sessions.map((session) => session.uid)).size,
@@ -151,8 +162,10 @@ export async function readSessions(signal: AbortSignal) {
     partial,
   };
 }
+
 async function readBoottime() {
   const { readFile } = await import('node:fs/promises');
+
   return Number((await readFile('/proc/uptime', 'utf8')).split(' ')[0]);
 }
 
@@ -166,10 +179,13 @@ export function normalizeSession(
     !['user', 'user-early', 'user-light'].includes(properties.get('Class') ?? '')
   )
     return null;
+
   const get = (key: string) => properties.get(key) || null;
+
   const monotonic = Number(properties.get('TimestampMonotonic'));
   const started = get('Timestamp');
   const parsed = started ? Date.parse(started) : NaN;
+
   return {
     sessionId,
     uid: Number(properties.get('User')),

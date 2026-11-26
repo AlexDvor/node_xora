@@ -27,9 +27,12 @@ export interface ResourceMap {
   sessions: Awaited<ReturnType<typeof readSessions>>;
   routes: { routes: Awaited<ReturnType<typeof readRoutes>> };
 }
+
 export type Resource = keyof ResourceMap;
+
 export type Quality =
   'ok' | 'warming_up' | 'unavailable' | 'permission_denied' | 'stale' | 'partial';
+
 export interface Sample<K extends Resource = Resource> {
   streamId: string;
   sequence: number;
@@ -40,7 +43,9 @@ export interface Sample<K extends Resource = Resource> {
   reason: string | null;
   data: ResourceMap[K] | null;
 }
+
 export type CollectionTasks = { [K in Resource]: (signal: AbortSignal) => Promise<ResourceMap[K]> };
+
 export interface MonitoringSources {
   source: 'linux' | 'mock';
   tasks: CollectionTasks;

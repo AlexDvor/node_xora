@@ -3,11 +3,13 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { MetricsCollector } from '../metrics/collector.service.js';
 import { resourceHandler } from '../metrics/resource.controller.js';
 import { noCacheHook } from '../../hooks/no-cache.hook.js';
+
 export const networkRoutes: FastifyPluginAsync<{ collector: MetricsCollector }> = async (
   app,
   { collector },
 ) => {
   app.addHook('onSend', noCacheHook);
+
   for (const [path, resource] of [
     ['interfaces', 'network'],
     ['traffic', 'network'],

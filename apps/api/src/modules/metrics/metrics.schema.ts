@@ -1,13 +1,13 @@
 import { responses, noQuery } from '../../common/schemas/monitoring.schema.js';
 import {
-  object as o,
+  object as objectSchema,
   array,
-  string as s,
-  nullableString as ns,
-  number as n,
-  nullableNumber as nn,
+  string as stringSchema,
+  nullableString as nullableStringSchema,
+  number as numberSchema,
+  nullableNumber as nullableNumberSchema,
   count,
-  boolean as b,
+  boolean as booleanSchema,
   timestamp,
   strings,
   sampleSchema,
@@ -38,6 +38,7 @@ function hostData(schema: typeof infoRouteSchema): Record<string, unknown> {
     schema.response as Record<number, { properties: { data: Record<string, unknown> } }>
   )[200]!.properties.data;
 }
+
 export const dataSchemas: Record<Resource, Record<string, unknown>> = {
   memory: memoryResponseSchema.properties.data,
   swap: swapResponseSchema.properties.data,
@@ -54,33 +55,43 @@ export const dataSchemas: Record<Resource, Record<string, unknown>> = {
   sessions: sessionDataSchema,
   routes: routesDataSchema,
 };
-const capability = o({ available: b, quality: s, reason: ns });
+
+const capability = objectSchema({
+  available: booleanSchema,
+  quality: stringSchema,
+  reason: nullableStringSchema,
+});
+
 for (const name of Object.keys(dataSchemas) as Resource[])
   dataSchemas[name]!.example = monitoringExamples[name];
-export const currentSchema = o({
+
+export const currentSchema = objectSchema({
   schemaVersion: { type: 'integer', const: 1 },
-  streamId: s,
+  streamId: stringSchema,
   sequence: count,
-  runtime: o({
+  runtime: objectSchema({
     rssBytes: count,
     heapUsedBytes: count,
     cpuUserMicroseconds: count,
     cpuSystemMicroseconds: count,
-    eventLoopDelayMeanMs: nn,
-    eventLoopDelayMaxMs: nn,
+    eventLoopDelayMeanMs: nullableNumberSchema,
+    eventLoopDelayMaxMs: nullableNumberSchema,
   }),
-  sections: o(
+  sections: objectSchema(
     Object.fromEntries(
       Object.entries(dataSchemas).map(([name, schema]) => [name, sampleSchema(schema)]),
     ),
   ),
-  capabilities: o(Object.fromEntries(Object.keys(dataSchemas).map((name) => [name, capability]))),
-  diagnostics: o({
+  capabilities: objectSchema(
+    Object.fromEntries(Object.keys(dataSchemas).map((name) => [name, capability])),
+  ),
+  diagnostics: objectSchema({
     missedCollections: count,
     timedOutCollections: count,
-    durationsMs: { type: 'object', additionalProperties: n },
+    durationsMs: { type: 'object', additionalProperties: numberSchema },
   }),
 });
+
 export const historyQuerySchema = {
   type: 'object',
   additionalProperties: false,
@@ -92,26 +103,27 @@ export const historyQuerySchema = {
     resolutionSeconds: { type: 'integer', minimum: 2, maximum: 900, default: 2 },
   },
 } as const;
-export const historyDataSchema = o({
-  streamId: s,
+
+export const historyDataSchema = objectSchema({
+  streamId: stringSchema,
   retentionSeconds: count,
-  persistent: b,
+  persistent: booleanSchema,
   availableSeries: strings,
   series: array(
-    o({
-      name: s,
-      availableFrom: ns,
-      availableTo: ns,
-      insufficientHistory: b,
+    objectSchema({
+      name: stringSchema,
+      availableFrom: nullableStringSchema,
+      availableTo: nullableStringSchema,
+      insufficientHistory: booleanSchema,
       points: array(
-        o({
+        objectSchema({
           windowStart: timestamp,
           collectedAt: timestamp,
           sequence: count,
-          quality: s,
-          mean: nn,
-          min: nn,
-          max: nn,
+          quality: stringSchema,
+          mean: nullableNumberSchema,
+          min: nullableNumberSchema,
+          max: nullableNumberSchema,
         }),
       ),
     }),

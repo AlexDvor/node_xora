@@ -18,6 +18,7 @@ export function networkUsage(previous: NetworkCounters | undefined, current: Net
       tx >= 0n &&
       rx <= BigInt(Number.MAX_SAFE_INTEGER) &&
       tx <= BigInt(Number.MAX_SAFE_INTEGER);
+
     return {
       ...link,
       rxBytesPerSecond: valid ? Number(rx) / elapsed : null,
@@ -37,6 +38,7 @@ export function networkUsage(previous: NetworkCounters | undefined, current: Net
   const address = preferred?.addresses.find(
     (item) => item.family === 'IPv4' && item.scope === 'global',
   );
+
   return {
     interfaces,
     includedInterfaceIds: included.map((link) => link.id),

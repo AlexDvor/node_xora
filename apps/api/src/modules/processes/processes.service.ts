@@ -3,6 +3,7 @@ import type { MetricsCollector } from '../metrics/collector.service.js';
 import { AppError } from '../../common/errors/app-error.js';
 import type { ProcessQuery } from './processes.types.js';
 import type { ProcessCounters } from '../../infrastructure/linux/processes.provider.js';
+
 export function processUsage(
   previous: ProcessCounters | undefined,
   current: ProcessCounters,
@@ -15,6 +16,7 @@ export function processUsage(
   const oldById = new Map(
     previous?.processes.map((item) => [`${item.pid}:${item.startTicks}`, item]) ?? [],
   );
+
   return {
     scope: 'current PID namespace; safe comm only; CPU 100% per logical CPU',
     partial: current.partial,
@@ -27,6 +29,7 @@ export function processUsage(
         elapsed && delta !== null && delta >= 0n && delta <= BigInt(Number.MAX_SAFE_INTEGER)
           ? (Number(delta) / current.ticksPerSecond / elapsed) * 100
           : null;
+
       return {
         id: `${current.bootId}:${item.pid}:${item.startTicks}`,
         pid: item.pid,
@@ -46,8 +49,10 @@ export function processUsage(
 
 export function processPage(collector: MetricsCollector, query: ProcessQuery) {
   const sample = collector.get('processes');
+
   if (!sample.data)
     throw new AppError('PROCESSES_UNAVAILABLE', 'Process snapshot unavailable', 503);
+
   const snapshotId = `${sample.streamId}:${sample.sequence}`;
   const filter = createHash('sha256')
     .update(
@@ -61,6 +66,7 @@ export function processPage(collector: MetricsCollector, query: ProcessQuery) {
     )
     .digest('hex');
   let offset = 0;
+
   if (query.cursor) {
     try {
       const cursor = JSON.parse(Buffer.from(query.cursor, 'base64url').toString()) as {
@@ -68,6 +74,7 @@ export function processPage(collector: MetricsCollector, query: ProcessQuery) {
         filter: string;
         offset: number;
       };
+
       if (cursor.snapshotId !== snapshotId)
         throw new AppError(
           'RESYNC_REQUIRED',
@@ -76,12 +83,15 @@ export function processPage(collector: MetricsCollector, query: ProcessQuery) {
         );
       if (cursor.filter !== filter || !Number.isSafeInteger(cursor.offset) || cursor.offset < 0)
         throw new Error('Invalid cursor');
+
       offset = cursor.offset;
     } catch (error) {
       if (error instanceof AppError) throw error;
+
       throw new AppError('INVALID_CURSOR', 'Invalid process cursor', 400);
     }
   }
+
   const rows = sample.data.processes
     .filter(
       (row) =>
@@ -91,12 +101,16 @@ export function processPage(collector: MetricsCollector, query: ProcessQuery) {
     .sort((a, b) => {
       const x = a[query.sort],
         y = b[query.sort];
+
       if (x === null && y !== null) return 1;
       if (y === null && x !== null) return -1;
+
       const result =
         typeof x === 'string' && typeof y === 'string' ? x.localeCompare(y) : Number(x) - Number(y);
+
       return (query.direction === 'asc' ? result : -result) || a.pid - b.pid;
     });
+
   return {
     ...sample,
     data: {

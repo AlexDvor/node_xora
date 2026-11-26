@@ -1,6 +1,8 @@
 import type { ResourceMap } from './metrics.types.js';
+
 // Typed illustrations only. Never use these values as Linux measurements.
 const meta = { source: 'mock' as const, collectedAt: '2026-11-26T00:00:00.000Z' };
+
 export const monitoringExamples: ResourceMap = {
   memory: { ...meta, totalBytes: 4096, availableBytes: 3072, usedBytes: 1024, usedPercent: 25 },
   swap: { ...meta, totalBytes: 0, freeBytes: 0, usedBytes: 0, usedPercent: null, enabled: false },

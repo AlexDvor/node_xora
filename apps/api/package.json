@@ -9,8 +9,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc --noEmit",
-    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"*.json\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"*.json\"",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"deployment/checks/**/*.mjs\" \"*.json\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"deployment/checks/**/*.mjs\" \"*.json\"",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
     "test": "tsx --test tests/*.test.ts"

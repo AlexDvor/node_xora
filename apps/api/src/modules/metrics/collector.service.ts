@@ -5,7 +5,8 @@ import { monitoringPolicy as policy } from '../../config/monitoring.js';
 import { AppError } from '../../common/errors/app-error.js';
 import type { MonitoringSources, Resource, ResourceMap, Sample, Quality } from './metrics.types.js';
 
-const fast = new Set<Resource>(['memory', 'swap', 'load', 'uptime', 'cpu', 'network']);
+const fastResources = new Set<Resource>(['memory', 'swap', 'load', 'uptime', 'cpu', 'network']);
+
 export const resources: Resource[] = [
   'memory',
   'swap',
@@ -22,13 +23,19 @@ export const resources: Resource[] = [
   'sessions',
   'routes',
 ];
+
 export function intervalFor(resource: Resource) {
-  return fast.has(resource)
-    ? policy.fastIntervalMs
-    : resource === 'processes' || resource === 'sessions'
-      ? policy.processIntervalMs
-      : policy.slowIntervalMs;
+  if (fastResources.has(resource)) {
+    return policy.fastIntervalMs;
+  }
+
+  if (resource === 'processes' || resource === 'sessions') {
+    return policy.processIntervalMs;
+  }
+
+  return policy.slowIntervalMs;
 }
+
 export interface HistoryPoint {
   sequence: number;
   collectedAt: string;
@@ -52,30 +59,38 @@ export class MetricsCollector extends EventEmitter {
     timedOutCollections: 0,
     durationsMs: {} as Partial<Record<Resource, number>>,
   };
+
   constructor(readonly sources: MonitoringSources) {
     super();
     this.setMaxListeners(policy.maxConnections + 8);
   }
+
   async start() {
     if (this.started) return;
+
     this.started = true;
     this.eventLoop.enable();
     await Promise.all(resources.map((resource) => this.collect(resource)));
+
     if (this.stopped) return;
     for (const resource of resources) {
       const timer = setInterval(() => {
         void this.collect(resource);
       }, intervalFor(resource));
+
       timer.unref();
       this.timers.push(timer);
     }
   }
+
   async collect<K extends Resource>(resource: K): Promise<void> {
     if (this.stopped) return;
     if (this.jobs.has(resource)) {
       this.diagnostics.missedCollections++;
+
       return;
     }
+
     const abort = new AbortController();
     const start = performance.now();
     let timedOut = false;
@@ -87,15 +102,19 @@ export class MetricsCollector extends EventEmitter {
       timedOut = true;
       abort.abort();
       this.diagnostics.timedOutCollections++;
+
       if (!this.stopped) this.failure(resource, 'COLLECTION_TIMEOUT');
+
       release();
     }, policy.taskTimeoutMs);
     const done = Promise.resolve()
       .then(() => this.sources.tasks[resource](abort.signal))
       .then((data) => {
         if (this.stopped || timedOut) return;
+
         let quality: Quality = 'ok',
           reason: string | null = null;
+
         if (
           (resource === 'cpu' && (data as ResourceMap['cpu']).totalPercent === null) ||
           (resource === 'network' && (data as ResourceMap['network']).windowSeconds === null)
@@ -131,6 +150,7 @@ export class MetricsCollector extends EventEmitter {
           quality = 'unavailable';
           reason = 'NO_SENSORS';
         }
+
         this.successTimes.set(resource, performance.now());
         this.publish(resource, {
           streamId: this.streamId,
@@ -161,11 +181,15 @@ export class MetricsCollector extends EventEmitter {
         this.diagnostics.durationsMs[resource] = performance.now() - start;
         release();
       });
+
     this.jobs.set(resource, { abort, done });
+
     return bounded;
   }
+
   private failure(resource: Resource, reason: string) {
     const old = this.samples.get(resource);
+
     this.publish(resource, {
       streamId: this.streamId,
       sequence: (old?.sequence ?? 0) + 1,
@@ -177,8 +201,10 @@ export class MetricsCollector extends EventEmitter {
       data: null,
     });
   }
+
   get<K extends Resource>(resource: K): Sample<K> {
     const sample = this.samples.get(resource) as Sample<K> | undefined;
+
     if (!sample)
       return {
         streamId: this.streamId,
@@ -190,25 +216,32 @@ export class MetricsCollector extends EventEmitter {
         reason: 'COLLECTOR_STARTING',
         data: null,
       };
+
     const success = this.successTimes.get(resource);
+
     if (
       sample.quality === 'ok' &&
       success !== undefined &&
       performance.now() - success > intervalFor(resource) * policy.staleMultiplier
     )
       return { ...sample, quality: 'stale', reason: 'SAMPLE_TOO_OLD' };
+
     return sample;
   }
+
   data<K extends Resource>(resource: K): ResourceMap[K] {
     const sample = this.get(resource);
+
     if (!sample.data || ['unavailable', 'permission_denied', 'stale'].includes(sample.quality))
       throw new AppError(
         `${resource.toUpperCase()}_INFO_UNAVAILABLE`,
         'Unable to retrieve monitoring information',
         503,
       );
+
     return sample.data;
   }
+
   current() {
     return {
       schemaVersion: 1,
@@ -238,32 +271,40 @@ export class MetricsCollector extends EventEmitter {
       },
     };
   }
+
   private publish(resource: Resource, sample: Sample) {
     this.revision++;
     this.samples.set(resource, sample);
+
     const add = (series: string, value: number | null) => {
       const points = this.history.get(series) ?? [];
+
       points.push({
         sequence: sample.sequence,
         collectedAt: sample.collectedAt!,
         quality: sample.quality,
         value,
       });
+
       const cutoff = Date.now() - policy.historyRetentionMs;
+
       while (
         points.length &&
         (Date.parse(points[0]!.collectedAt) < cutoff ||
           points.length > Math.ceil(policy.historyRetentionMs / 2000) + 1)
       )
         points.shift();
+
       this.history.set(series, points);
     };
+
     if (resource === 'cpu')
       add('cpu', (sample.data as ResourceMap['cpu'] | null)?.totalPercent ?? null);
     if (resource === 'memory' || resource === 'swap')
       add(resource, (sample.data as ResourceMap['memory'] | null)?.usedPercent ?? null);
     if (resource === 'network') {
       const data = sample.data as ResourceMap['network'] | null;
+
       add('rx', data?.rxBytesPerSecond ?? null);
       add('tx', data?.txBytesPerSecond ?? null);
     }
@@ -271,6 +312,7 @@ export class MetricsCollector extends EventEmitter {
       const sensors = (sample.data as ResourceMap['temperature'] | null)?.sensors ?? [];
       // Fixed maximum of 64 history series; missing sensors receive a gap.
       const existing = [...this.history.keys()].filter((key) => key.startsWith('temperature:'));
+
       for (const id of new Set([
         ...existing.map((key) => key.slice(12)),
         ...sensors.slice(0, 64).map((sensor) => sensor.id),
@@ -280,15 +322,19 @@ export class MetricsCollector extends EventEmitter {
           [...this.history.keys()].filter((key) => key.startsWith('temperature:')).length >= 64
         )
           continue;
+
         add(`temperature:${id}`, sensors.find((sensor) => sensor.id === id)?.celsius ?? null);
       }
     }
+
     this.emit('sample', resource, sample);
   }
+
   queryHistory(series: string[], from: number, to: number, resolutionMs: number) {
     for (const name of series)
       if (!this.history.has(name) && !['cpu', 'memory', 'swap', 'rx', 'tx'].includes(name))
         throw new AppError('UNKNOWN_SERIES', 'Unknown history series', 404);
+
     return {
       streamId: this.streamId,
       retentionSeconds: policy.historyRetentionMs / 1000,
@@ -300,12 +346,15 @@ export class MetricsCollector extends EventEmitter {
           (point) => Date.parse(point.collectedAt) >= from && Date.parse(point.collectedAt) <= to,
         );
         const buckets = new Map<number, HistoryPoint[]>();
+
         for (const point of points) {
           const key = Math.floor((Date.parse(point.collectedAt) - from) / resolutionMs);
           const bucket = buckets.get(key) ?? [];
+
           bucket.push(point);
           buckets.set(key, bucket);
         }
+
         return {
           name,
           availableFrom: all[0]?.collectedAt ?? null,
@@ -314,6 +363,7 @@ export class MetricsCollector extends EventEmitter {
           points: [...buckets].map(([key, bucket]) => {
             const values = bucket.map((point) => point.value);
             const valid = values.every((value): value is number => value !== null);
+
             return {
               windowStart: new Date(from + key * resolutionMs).toISOString(),
               collectedAt: bucket.at(-1)!.collectedAt,
@@ -328,21 +378,26 @@ export class MetricsCollector extends EventEmitter {
       }),
     };
   }
+
   async stop() {
     this.eventLoop.disable();
     this.stopped = true;
     this.timers.forEach(clearInterval);
+
     for (const job of this.jobs.values()) job.abort.abort();
     if (this.jobs.size) {
       let timer: ReturnType<typeof setTimeout> | undefined;
+
       await Promise.race([
         Promise.allSettled([...this.jobs.values()].map((job) => job.done)),
         new Promise((resolve) => {
           timer = setTimeout(resolve, policy.taskTimeoutMs);
         }),
       ]);
+
       if (timer) clearTimeout(timer);
     }
+
     this.removeAllListeners();
   }
 }

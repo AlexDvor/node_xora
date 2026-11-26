@@ -37,13 +37,17 @@ export interface HostProvider {
 
 export function parseOsRelease(text: string): HostInfo['os'] {
   const values = new Map<string, string>();
+
   for (const line of text.split('\n')) {
     const match = /^(ID|PRETTY_NAME|VERSION_ID)=(.*)$/.exec(line);
+
     if (match) {
       const raw = match[2]!;
+
       values.set(match[1]!, raw.replace(/^(["'])(.*)\1$/, '$2').replace(/\\(["\\$`])/g, '$1'));
     }
   }
+
   return {
     id: values.get('ID') ?? null,
     name: values.get('PRETTY_NAME') ?? null,
@@ -55,6 +59,7 @@ export function parseUptime(text: string, stat: string, bootId: string): UptimeI
   const uptimeSeconds = Number(text.trim().split(/\s+/)[0]);
   const btime = /^btime\s+(\d+)$/m.exec(stat);
   const epoch = btime ? Number(btime[1]) : NaN;
+
   if (
     !Number.isFinite(uptimeSeconds) ||
     uptimeSeconds < 0 ||
@@ -63,6 +68,7 @@ export function parseUptime(text: string, stat: string, bootId: string): UptimeI
     !/^[a-f0-9-]{36}$/.test(bootId.trim())
   )
     throw new Error('Invalid uptime data');
+
   return {
     uptimeSeconds,
     bootId: bootId.trim(),
@@ -79,12 +85,16 @@ export class LinuxHostProvider implements HostProvider {
       readFile('/proc/cpuinfo', 'utf8'),
     ]);
     const topology = new Set<string>();
+
     for (const block of cpuinfo.split(/\n\s*\n/)) {
       const socket = /^physical id\s*:\s*(\d+)/m.exec(block)?.[1];
       const core = /^core id\s*:\s*(\d+)/m.exec(block)?.[1];
+
       if (socket !== undefined && core !== undefined) topology.add(`${socket}:${core}`);
     }
+
     const processors = cpus();
+
     return {
       hostname: hostname(),
       os: parseOsRelease(os),
@@ -97,23 +107,29 @@ export class LinuxHostProvider implements HostProvider {
       collectedAt: new Date().toISOString(),
     };
   }
+
   async getUptimeInfo(): Promise<UptimeInfo> {
     const [uptime, stat, boot] = await Promise.all([
       readFile('/proc/uptime', 'utf8'),
       readFile('/proc/stat', 'utf8'),
       readFile('/proc/sys/kernel/random/boot_id', 'utf8'),
     ]);
+
     return parseUptime(uptime, stat, boot);
   }
+
   async getLoadInfo(): Promise<LoadInfo> {
     if (process.platform !== 'linux') throw new Error('Linux provider requires Linux');
+
     const [load1, load5, load15] = loadavg();
+
     if (
       [load1, load5, load15].some(
         (value) => value === undefined || !Number.isFinite(value) || value < 0,
       )
     )
       throw new Error('Invalid load data');
+
     return {
       load1: load1!,
       load5: load5!,
@@ -138,6 +154,7 @@ export class MockHostProvider implements HostProvider {
       collectedAt: new Date().toISOString(),
     };
   }
+
   async getUptimeInfo(): Promise<UptimeInfo> {
     return {
       uptimeSeconds: 120,
@@ -147,6 +164,7 @@ export class MockHostProvider implements HostProvider {
       collectedAt: new Date().toISOString(),
     };
   }
+
   async getLoadInfo(): Promise<LoadInfo> {
     return {
       load1: 0.1,

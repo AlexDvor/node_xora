@@ -1,40 +1,43 @@
 import { sampleSchema, responses } from '../../common/schemas/monitoring.schema.js';
 import { monitoringExamples } from '../metrics/metrics.examples.js';
 import {
-  object as o,
+  object as objectSchema,
   array,
-  string as s,
-  nullableString as ns,
-  nullableNumber as nn,
+  string as stringSchema,
+  nullableString as nullableStringSchema,
+  nullableNumber as nullableNumberSchema,
   count,
-  boolean as b,
+  boolean as booleanSchema,
 } from '../../common/schemas/monitoring.schema.js';
-export const processDataSchema = o({
-  scope: s,
-  partial: b,
+
+export const processDataSchema = objectSchema({
+  scope: stringSchema,
+  partial: booleanSchema,
   skipped: count,
-  windowSeconds: nn,
+  windowSeconds: nullableNumberSchema,
   processes: array(
-    o({
-      id: s,
+    objectSchema({
+      id: stringSchema,
       pid: count,
       uid: count,
-      username: ns,
-      name: s,
-      state: s,
+      username: nullableStringSchema,
+      name: stringSchema,
+      state: stringSchema,
       rssBytes: count,
-      memoryPercent: nn,
-      memoryReason: ns,
-      cpuPercent: nn,
-      cpuReason: ns,
+      memoryPercent: nullableNumberSchema,
+      memoryReason: nullableStringSchema,
+      cpuPercent: nullableNumberSchema,
+      cpuReason: nullableStringSchema,
     }),
   ),
 });
-export const processPageSchema = o({
+
+export const processPageSchema = objectSchema({
   ...processDataSchema.properties,
-  snapshotId: s,
-  nextCursor: ns,
+  snapshotId: stringSchema,
+  nextCursor: nullableStringSchema,
 });
+
 export const processQuerySchema = {
   type: 'object',
   additionalProperties: false,

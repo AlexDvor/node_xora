@@ -25,12 +25,15 @@ export function createLinuxSources(): MonitoringSources {
     previousNetwork: NetworkCounters | undefined,
     previousProcesses: ProcessCounters | undefined;
   let memoryTotal: number | null = null;
+
   return {
     source: 'linux',
     tasks: {
       memory: async () => {
         const info = await memory.getMemoryInfo();
+
         memoryTotal = info.totalBytes;
+
         return info;
       },
       swap: () => memory.getSwapInfo(),
@@ -40,18 +43,23 @@ export function createLinuxSources(): MonitoringSources {
       cpu: async (signal) => {
         const current = await readCpu(signal);
         const info = cpuUsage(previousCpu, current);
+
         previousCpu = current;
+
         return info;
       },
       network: async (signal) => {
         const current = await readNetwork(signal);
         const info = networkUsage(previousNetwork, current);
+
         previousNetwork = current;
+
         return info;
       },
       disks: async (signal) => {
         const disk = await readDisk(signal);
         const usedBytes = disk.totalBytes - disk.freeBytes;
+
         return {
           ...disk,
           usedBytes,
@@ -63,11 +71,14 @@ export function createLinuxSources(): MonitoringSources {
       processes: async (signal) => {
         const current = await processProvider.read(signal);
         const info = processUsage(previousProcesses, current, memoryTotal);
+
         previousProcesses = current;
+
         return info;
       },
       services: async (signal) => {
         const units = await readServices(signal);
+
         return {
           units,
           runningCount: units.filter(
@@ -82,9 +93,11 @@ export function createLinuxSources(): MonitoringSources {
     },
   };
 }
+
 export function createMockSources(): MonitoringSources {
   const memory = new SystemService(new MockSystemProvider());
   const host = new MockHostProvider();
+
   return {
     source: 'mock',
     tasks: {

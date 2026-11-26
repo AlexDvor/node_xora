@@ -1,19 +1,26 @@
 import { sampleSchema, responses, noQuery } from '../../common/schemas/monitoring.schema.js';
 import { monitoringExamples } from '../metrics/metrics.examples.js';
-import { object as o, array, string as s, count } from '../../common/schemas/monitoring.schema.js';
-export const serviceUnitSchema = o({
-  name: s,
+import {
+  object as objectSchema,
+  array,
+  string as stringSchema,
+  count,
+} from '../../common/schemas/monitoring.schema.js';
+
+export const serviceUnitSchema = objectSchema({
+  name: stringSchema,
   scope: { type: 'string', enum: ['system', 'user'] },
-  description: s,
-  loadState: s,
-  activeState: s,
-  subState: s,
+  description: stringSchema,
+  loadState: stringSchema,
+  activeState: stringSchema,
+  subState: stringSchema,
   mainPid: { ...count, nullable: true },
 });
-export const servicesDataSchema = o({
+
+export const servicesDataSchema = objectSchema({
   units: array(serviceUnitSchema),
   runningCount: count,
-  scope: s,
+  scope: stringSchema,
 });
 
 export const serviceDetailRouteSchema = {

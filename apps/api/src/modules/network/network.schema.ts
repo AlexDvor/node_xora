@@ -1,53 +1,65 @@
 import { sampleSchema, responses, noQuery } from '../../common/schemas/monitoring.schema.js';
 import {
-  object as o,
+  object as objectSchema,
   array,
-  string as s,
-  nullableString as ns,
-  nullableNumber as nn,
+  string as stringSchema,
+  nullableString as nullableStringSchema,
+  nullableNumber as nullableNumberSchema,
   count,
-  boolean as b,
+  boolean as booleanSchema,
   strings,
 } from '../../common/schemas/monitoring.schema.js';
-export const networkDataSchema = o({
+
+export const networkDataSchema = objectSchema({
   interfaces: array(
-    o({
-      id: s,
-      name: s,
+    objectSchema({
+      id: stringSchema,
+      name: stringSchema,
       index: count,
-      state: s,
-      kind: s,
+      state: stringSchema,
+      kind: stringSchema,
       mtu: count,
-      addresses: array(o({ family: s, address: s, prefix: count, scope: s })),
+      addresses: array(
+        objectSchema({
+          family: stringSchema,
+          address: stringSchema,
+          prefix: count,
+          scope: stringSchema,
+        }),
+      ),
       rxBytes: {
-        ...s,
+        ...stringSchema,
         description: 'Cumulative RX bytes as decimal string, avoiding unsafe integer conversion.',
       },
-      txBytes: s,
-      rxBytesPerSecond: nn,
-      txBytesPerSecond: nn,
+      txBytes: stringSchema,
+      rxBytesPerSecond: nullableNumberSchema,
+      txBytesPerSecond: nullableNumberSchema,
     }),
   ),
   includedInterfaceIds: strings,
-  rxBytesPerSecond: nn,
-  txBytesPerSecond: nn,
-  windowSeconds: nn,
-  currentAddress: { ...o({ interfaceId: s, family: s, address: s }), nullable: true },
-  addressReason: ns,
+  rxBytesPerSecond: nullableNumberSchema,
+  txBytesPerSecond: nullableNumberSchema,
+  windowSeconds: nullableNumberSchema,
+  currentAddress: {
+    ...objectSchema({ interfaceId: stringSchema, family: stringSchema, address: stringSchema }),
+    nullable: true,
+  },
+  addressReason: nullableStringSchema,
 });
-export const connectionsDataSchema = o({
-  scope: s,
-  truncated: b,
+
+export const connectionsDataSchema = objectSchema({
+  scope: stringSchema,
+  truncated: booleanSchema,
   connections: array(
-    o({
-      protocol: s,
-      localAddress: s,
+    objectSchema({
+      protocol: stringSchema,
+      localAddress: stringSchema,
       localPort: count,
-      remoteAddress: s,
+      remoteAddress: stringSchema,
       remotePort: count,
-      state: s,
+      state: stringSchema,
       uid: count,
-      inode: s,
+      inode: stringSchema,
     }),
   ),
 });

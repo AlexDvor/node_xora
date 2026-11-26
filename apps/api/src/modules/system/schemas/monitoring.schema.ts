@@ -1,56 +1,73 @@
 import { sampleSchema, responses, noQuery } from '../../../common/schemas/monitoring.schema.js';
 import {
-  object as o,
+  object as objectSchema,
   array,
-  string as s,
-  nullableString as ns,
-  nullableNumber as nn,
+  string as stringSchema,
+  nullableString as nullableStringSchema,
+  nullableNumber as nullableNumberSchema,
   count,
-  boolean as b,
+  boolean as booleanSchema,
 } from '../../../common/schemas/monitoring.schema.js';
-export const cpuDataSchema = o({
-  totalPercent: { ...nn, minimum: 0, maximum: 100 },
-  cores: array(o({ id: s, usedPercent: { ...nn, minimum: 0, maximum: 100 } })),
-  windowSeconds: nn,
-  bootId: s,
+
+export const cpuDataSchema = objectSchema({
+  totalPercent: { ...nullableNumberSchema, minimum: 0, maximum: 100 },
+  cores: array(
+    objectSchema({
+      id: stringSchema,
+      usedPercent: { ...nullableNumberSchema, minimum: 0, maximum: 100 },
+    }),
+  ),
+  windowSeconds: nullableNumberSchema,
+  bootId: stringSchema,
 });
-export const disksDataSchema = o({
-  mountPoint: s,
-  filesystem: s,
-  device: s,
-  readOnly: b,
+
+export const disksDataSchema = objectSchema({
+  mountPoint: stringSchema,
+  filesystem: stringSchema,
+  device: stringSchema,
+  readOnly: booleanSchema,
   totalBytes: count,
   freeBytes: count,
   availableBytes: count,
   usedBytes: count,
-  usedPercent: nn,
+  usedPercent: nullableNumberSchema,
 });
-export const temperatureDataSchema = o({
-  sensors: array(o({ id: s, chip: s, label: s, celsius: nn, reason: ns })),
+
+export const temperatureDataSchema = objectSchema({
+  sensors: array(
+    objectSchema({
+      id: stringSchema,
+      chip: stringSchema,
+      label: stringSchema,
+      celsius: nullableNumberSchema,
+      reason: nullableStringSchema,
+    }),
+  ),
 });
-export const sessionDataSchema = o({
-  scope: s,
+
+export const sessionDataSchema = objectSchema({
+  scope: stringSchema,
   connectedUsersCount: count,
   sessionsCount: count,
-  partial: b,
+  partial: booleanSchema,
   sessions: array(
-    o({
-      sessionId: s,
+    objectSchema({
+      sessionId: stringSchema,
       uid: count,
-      username: ns,
-      state: ns,
-      type: ns,
-      service: ns,
-      remote: { ...b, nullable: true },
-      remoteHost: ns,
-      tty: ns,
-      seat: ns,
+      username: nullableStringSchema,
+      state: nullableStringSchema,
+      type: nullableStringSchema,
+      service: nullableStringSchema,
+      remote: { ...booleanSchema, nullable: true },
+      remoteHost: nullableStringSchema,
+      tty: nullableStringSchema,
+      seat: nullableStringSchema,
       leaderPid: { ...count, nullable: true },
-      startedAt: ns,
-      durationSeconds: nn,
-      idleHint: { ...b, nullable: true },
-      idleSince: ns,
-      missingMetadataReason: s,
+      startedAt: nullableStringSchema,
+      durationSeconds: nullableNumberSchema,
+      idleHint: { ...booleanSchema, nullable: true },
+      idleSince: nullableStringSchema,
+      missingMetadataReason: stringSchema,
     }),
   ),
 });

@@ -38,8 +38,10 @@ export async function buildApp(options: {
   const collector = options.monitoringSources
     ? new MetricsCollector(options.monitoringSources)
     : undefined;
+
   if (collector) {
     const logs = new LogsService(collector.sources.source);
+
     await registerRealtime(app, collector);
     app.addHook('onReady', () => collector.start());
     app.addHook('onClose', () => collector.stop());
@@ -53,6 +55,7 @@ export async function buildApp(options: {
   }
 
   app.register(healthRoutes, { prefix: '/api/v1' });
+
   if (options.hostProvider || collector) {
     app.register(hostRoutes, {
       prefix: '/api/v1/system',
@@ -77,5 +80,6 @@ export async function buildApp(options: {
         : undefined,
     ),
   });
+
   return app;
 }

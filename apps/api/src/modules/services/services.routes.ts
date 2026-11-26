@@ -3,12 +3,15 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { MetricsCollector } from '../metrics/collector.service.js';
 import { noCacheHook } from '../../hooks/no-cache.hook.js';
 import { createServicesController } from './services.controller.js';
+
 export const servicesRoutes: FastifyPluginAsync<{ collector: MetricsCollector }> = async (
   app,
   { collector },
 ) => {
   app.addHook('onSend', noCacheHook);
+
   const controller = createServicesController(collector);
+
   app.get('/', {
     schema: servicesRouteSchema,
     handler: controller.list,

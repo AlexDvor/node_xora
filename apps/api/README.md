@@ -53,7 +53,11 @@ Durable API rules: [AGENTS.md](AGENTS.md). Repository skill:
 Invoke it with `$nodexora-api-feature` for the next agreed API task. The skill is
 stored with the repository, not installed as a server process.
 
-TypeScript and JSON use the API-local Prettier configuration. From `apps/api`:
+Prettier is installed locally in this API's devDependencies; no global installation
+is needed. `.prettierrc.json` and `.editorconfig` define two-space indentation,
+single quotes, semicolons, LF and a print width of 100. The format commands cover
+TypeScript in `src`/`tests`, JavaScript in `deployment/checks`, and API-local JSON.
+Angular's separate formatter configuration is unaffected. From `apps/api`:
 
 ```bash
 npm run format
@@ -62,6 +66,12 @@ npm run format:check
 
 The first command applies the style; the second checks it without rewriting files.
 Build, type-check and behavior tests remain separate commands.
+
+Keep one blank line between functions/methods and between logical stages such as
+reading data, validation, calculation and returning the result. Related declarations
+stay grouped. Prettier preserves these blank lines but does not insert them
+automatically; the writing convention is recorded in AGENTS.md. An editor with
+Prettier integration should use this project's installed version and configuration.
 
 ## Swagger UI
 

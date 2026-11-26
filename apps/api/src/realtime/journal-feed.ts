@@ -6,20 +6,26 @@ export class JournalFeed extends EventEmitter {
   private retry: ReturnType<typeof setTimeout> | undefined;
   private references = 0;
   sequence = 0;
+
   constructor(private readonly source: 'linux' | 'mock') {
     super();
     this.setMaxListeners(24);
   }
+
   acquire() {
     this.references++;
     this.open();
   }
+
   release() {
     this.references = Math.max(0, this.references - 1);
+
     if (!this.references) this.close();
   }
+
   private open() {
     if (this.source === 'mock' || !this.references || this.closeReader || this.retry) return;
+
     this.closeReader = followJournal(
       (entries) =>
         this.emit(
@@ -38,6 +44,7 @@ export class JournalFeed extends EventEmitter {
         this.emit('gap', ++this.sequence);
         this.closeReader?.();
         this.closeReader = undefined;
+
         if (!this.retry && this.references) {
           this.retry = setTimeout(() => {
             this.retry = undefined;
@@ -48,12 +55,16 @@ export class JournalFeed extends EventEmitter {
       },
     );
   }
+
   private close() {
     this.closeReader?.();
     this.closeReader = undefined;
+
     if (this.retry) clearTimeout(this.retry);
+
     this.retry = undefined;
   }
+
   stop() {
     this.references = 0;
     this.close();

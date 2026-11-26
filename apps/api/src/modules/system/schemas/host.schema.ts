@@ -2,18 +2,23 @@ import type { FastifySchema } from 'fastify';
 import { errorSchema } from '../../../common/schemas/error.schema.js';
 
 const text = { type: 'string' } as const;
+
 const nullableText = { type: 'string', nullable: true } as const;
+
 const number = { type: 'number', minimum: 0 } as const;
+
 const metadata = {
   source: { type: 'string', enum: ['linux', 'mock'] },
   collectedAt: { type: 'string', format: 'date-time' },
 } as const;
+
 const object = (properties: Record<string, unknown>) => ({
   type: 'object',
   additionalProperties: false,
   required: Object.keys(properties),
   properties,
 });
+
 function route(
   summary: string,
   description: string,
@@ -40,6 +45,7 @@ export const infoRouteSchema = route(
     physicalCoreCount: { type: 'integer', minimum: 1, nullable: true },
   },
 );
+
 export const uptimeRouteSchema = route(
   'Get uptime and boot identity',
   'uptimeSeconds comes from /proc/uptime. bootTime comes from btime in /proc/stat; wall-clock corrections may affect their relationship. bootId identifies a boot.',
@@ -49,6 +55,7 @@ export const uptimeRouteSchema = route(
     bootTime: { type: 'string', format: 'date-time' },
   },
 );
+
 export const loadRouteSchema = route(
   'Get load averages',
   'Linux node:os.loadavg(): average runnable and uninterruptible tasks over 1, 5 and 15 minutes. These are task counts, not CPU percentages.',

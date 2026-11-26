@@ -9,6 +9,7 @@ import {
   timestamp,
 } from '../common/schemas/monitoring.schema.js';
 import type { Resource } from '../modules/metrics/metrics.types.js';
+
 export const topicResources: Record<string, Resource> = {
   'system.memory': 'memory',
   'system.swap': 'swap',
@@ -25,7 +26,9 @@ export const topicResources: Record<string, Resource> = {
   services: 'services',
   'routing.routes': 'routes',
 };
+
 export const topics = [...Object.keys(topicResources), 'metrics.current', 'logs'];
+
 export const clientMessageSchema = {
   type: 'object',
   additionalProperties: false,
@@ -37,12 +40,14 @@ export const clientMessageSchema = {
     intervalSeconds: { type: 'integer', enum: [2, 5, 10, 30] },
   },
 } as const;
+
 export interface ClientMessage {
   type: 'subscribe' | 'unsubscribe';
   requestId: string;
   topic: string;
   intervalSeconds?: number;
 }
+
 export function serverMessageSchema(topic: string) {
   const resource = topicResources[topic];
   const data = resource
@@ -50,6 +55,7 @@ export function serverMessageSchema(topic: string) {
     : topic === 'logs'
       ? logsDataSchema
       : currentSchema;
+
   return object({
     protocolVersion: { type: 'integer', const: 1 },
     type: string,

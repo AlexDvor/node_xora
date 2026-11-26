@@ -1,6 +1,7 @@
 import { readCommand } from './read-command.js';
 import { spawn } from 'node:child_process';
 import { monitoringPolicy as policy } from '../../config/monitoring.js';
+
 export interface JournalQuery {
   limit: number;
   cursor?: string;
@@ -8,6 +9,7 @@ export interface JournalQuery {
   since?: string;
   until?: string;
 }
+
 export interface LogEntry {
   cursor: string;
   timestamp: string;
@@ -18,6 +20,7 @@ export interface LogEntry {
   pid: number | null;
   message: string;
 }
+
 export function redactMessage(message: string): string {
   // Best-effort defense in depth; only this application's journal is exposed.
   return message
@@ -29,6 +32,7 @@ export function redactMessage(message: string): string {
     .replace(/Bearer\s+\S+/gi, 'Bearer [REDACTED]')
     .slice(0, 16384);
 }
+
 export function parseJournal(text: string): LogEntry[] {
   return text.trim()
     ? text
@@ -36,11 +40,14 @@ export function parseJournal(text: string): LogEntry[] {
         .split('\n')
         .map((line) => {
           const row = JSON.parse(line) as Record<string, unknown>;
+
           if (typeof row.__CURSOR !== 'string' || typeof row.__REALTIME_TIMESTAMP !== 'string')
             throw new Error('Invalid journal metadata');
+
           const timestamp = Number(BigInt(row.__REALTIME_TIMESTAMP) / 1000n);
           const message =
             typeof row.MESSAGE === 'string' ? row.MESSAGE : '[non-text journal message]';
+
           return {
             cursor: row.__CURSOR,
             timestamp: new Date(timestamp).toISOString(),
@@ -54,6 +61,7 @@ export function parseJournal(text: string): LogEntry[] {
         })
     : [];
 }
+
 export async function readJournal(query: JournalQuery, signal: AbortSignal) {
   const args = [
     '--user',
@@ -63,14 +71,17 @@ export async function readJournal(query: JournalQuery, signal: AbortSignal) {
     '--quiet',
     '--output-fields=MESSAGE,PRIORITY,_BOOT_ID,_PID,SYSLOG_IDENTIFIER',
   ];
+
   if (query.cursor) args.push(`--after-cursor=${query.cursor}`, `--lines=+${query.limit + 1}`);
   else args.push(`--lines=${query.limit + 1}`);
   if (query.priority !== undefined) args.push(`--priority=${query.priority}`);
   if (query.since) args.push(`--since=${query.since}`);
   if (query.until) args.push(`--until=${query.until}`);
+
   const text = await readCommand('/usr/bin/journalctl', args, signal);
   const rows = parseJournal(text);
   const entries = rows.slice(0, query.limit);
+
   return {
     scope: 'current OS user journal, NodeXora unit only',
     entries,
@@ -105,20 +116,27 @@ export function followJournal(
   let buffer = '',
     stopping = false,
     discarding = false;
+
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', (chunk: string) => {
     buffer += chunk;
+
     let newline: number;
+
     while ((newline = buffer.indexOf('\n')) >= 0) {
       const line = buffer.slice(0, newline);
+
       buffer = buffer.slice(newline + 1);
+
       if (discarding || Buffer.byteLength(line) > 65536) {
         discarding = false;
         onGap();
+
         continue;
       }
       try {
         const entries = parseJournal(line);
+
         if (entries.length) onEntries(entries);
       } catch {
         onGap();
@@ -139,6 +157,7 @@ export function followJournal(
   child.on('close', () => {
     if (!stopping) onGap();
   });
+
   return () => {
     stopping = true;
     child.kill('SIGTERM');
